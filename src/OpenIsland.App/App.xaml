@@ -1,0 +1,17 @@
+<Application x:Class="OpenIsland.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Shared design tokens / controls used by the island and all windows. -->
+                <ResourceDictionary Source="Themes/Shared.xaml"/>
+                <!-- Geometry icons (chevron, gear, refresh, status glyphs …). -->
+                <ResourceDictionary Source="Themes/Icons.xaml"/>
+                <!-- Settings-window specific styles. -->
+                <ResourceDictionary Source="Themes/Settings.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

@@ -1,0 +1,18 @@
+# Build output
+artifacts/
+dist/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+
+# Logs / local test data
+*.log
+*.tmp
+devdata/
+
+# Inno Setup intermediate
+installer/*.exe
+installer/*.isl.bak

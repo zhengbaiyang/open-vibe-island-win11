@@ -1,0 +1,260 @@
+<Window x:Class="OpenIsland.App.IslandWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:OpenIsland.App.Controls"
+        Title="Open Island"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="{x:Null}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        SizeToContent="WidthAndHeight"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Ideal"
+        MouseEnter="Window_MouseEnter"
+        MouseLeave="Window_MouseLeave">
+
+    <Window.Resources>
+        <!-- Small monochrome icon path used inside header buttons. -->
+        <Style x:Key="ButtonIconPath" TargetType="Path">
+            <Setter Property="Width" Value="13"/>
+            <Setter Property="Height" Value="13"/>
+            <Setter Property="Stretch" Value="Uniform"/>
+            <Setter Property="Fill" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+        </Style>
+
+        <Style x:Key="DarkAnswerBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#0B0E13"/>
+            <Setter Property="Foreground" Value="#F2F4F8"/>
+            <Setter Property="CaretBrush" Value="#F2F4F8"/>
+            <Setter Property="BorderBrush" Value="#2A3140"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#4C6EA7FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Whole surface floats: the host window is transparent; only this pill is painted. -->
+    <controls:AnimatedCornerBorder x:Name="PillSurface"
+            AnimatedCornerRadius="23"
+            Margin="18,6,18,24"
+            Background="#FC0A0C10"
+            BorderBrush="#1FFFFFFF"
+            BorderThickness="1"
+            CornerRadius="23"
+            RenderTransformOrigin="0.5,0"
+            Cursor="Arrow">
+        <controls:AnimatedCornerBorder.RenderTransform>
+            <ScaleTransform x:Name="HoverScale" ScaleX="1" ScaleY="1"/>
+        </controls:AnimatedCornerBorder.RenderTransform>
+        <controls:AnimatedCornerBorder.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="6" Opacity="0.55" Direction="270"/>
+        </controls:AnimatedCornerBorder.Effect>
+
+        <StackPanel>
+            <!-- ============ Shared header (compact + expanded) ============ -->
+            <Grid x:Name="HeaderRow"
+                  Height="46"
+                  Margin="15,0,9,0"
+                  Cursor="Hand"
+                  MouseLeftButtonUp="CompactHeader_MouseLeftButtonUp"
+                  Background="Transparent">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <controls:BarsGlyph x:Name="HeaderBars"
+                                    Width="26" Height="26"
+                                    VerticalAlignment="Center"
+                                    Tint="{StaticResource BrushPaper}"/>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                            Margin="10,0,8,0">
+                    <TextBlock x:Name="HeaderTitle"
+                               Text="Open Island"
+                               Foreground="#F1EAD9"
+                               FontFamily="{StaticResource FontDisplay}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="HeaderStatus"
+                               Text="Idle"
+                               Foreground="#7D8899"
+                               FontFamily="{StaticResource FontBody}"
+                               FontSize="12"
+                               Margin="9,0,0,0"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"/>
+                    <Border x:Name="AlertChip"
+                            Visibility="Collapsed"
+                            Background="#2EF4A4A4"
+                            BorderBrush="#66F4A4A4"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="6,0,7,1"
+                            Margin="9,0,0,0"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="AlertChipText"
+                                   Text="1"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#FFDCDC"/>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="CompactRefreshBtn"
+                            Style="{StaticResource IconButton}"
+                            Width="26" Height="26"
+                            Visibility="Collapsed"
+                            Click="RefreshBtn_Click"
+                            ToolTip="Refresh sessions">
+                        <Path Style="{StaticResource ButtonIconPath}" Data="{StaticResource IconRefresh}"/>
+                    </Button>
+                    <Button x:Name="CompactSettingsBtn"
+                            Style="{StaticResource IconButton}"
+                            Width="26" Height="26"
+                            Margin="2,0,0,0"
+                            Visibility="Collapsed"
+                            Click="SettingsBtn_Click"
+                            ToolTip="Settings">
+                        <Path Style="{StaticResource ButtonIconPath}" Data="{StaticResource IconGear}"/>
+                    </Button>
+                    <Path x:Name="Chevron"
+                          Width="11" Height="11"
+                          Margin="7,1,3,0"
+                          Stretch="Uniform"
+                          Stroke="#8A95A6"
+                          StrokeThickness="1.8"
+                          StrokeStartLineCap="Round"
+                          StrokeEndLineCap="Round"
+                          Data="{StaticResource ChevronDown}"
+                          RenderTransformOrigin="0.5,0.5"
+                          VerticalAlignment="Center">
+                        <Path.RenderTransform>
+                            <RotateTransform x:Name="ChevronRotate" Angle="0"/>
+                        </Path.RenderTransform>
+                    </Path>
+                </StackPanel>
+            </Grid>
+
+            <!-- ============ Expanded drawer ============ -->
+            <Border x:Name="ExpandedBody"
+                    Visibility="Collapsed"
+                    Opacity="0"
+                    Margin="15,0,15,15">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="ExpandedTranslate" Y="0"/>
+                </Border.RenderTransform>
+
+                <StackPanel>
+                    <Border Height="1" Background="#17FFFFFF" Margin="0,0,0,13"/>
+
+                    <!-- Toolbar -->
+                    <Grid Margin="0,0,0,11">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock x:Name="LiveSessionsLabel"
+                                       Text="Live Agent Sessions"
+                                       Foreground="#8A95A6"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"/>
+                            <Border x:Name="SessionCountChip"
+                                    Background="#12FFFFFF"
+                                    CornerRadius="6"
+                                    Padding="6,1"
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center">
+                                <TextBlock x:Name="SessionCountText"
+                                           Text="0"
+                                           FontFamily="{StaticResource FontMono}"
+                                           FontSize="10"
+                                           Foreground="#B9C4D4"/>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button x:Name="RefreshBtn"
+                                    Style="{StaticResource IconButton}"
+                                    ToolTip="Refresh sessions"
+                                    Click="RefreshBtn_Click">
+                                <Path Style="{StaticResource ButtonIconPath}" Data="{StaticResource IconRefresh}"/>
+                            </Button>
+                            <Button x:Name="SettingsBtn"
+                                    Style="{StaticResource IconButton}"
+                                    Margin="4,0,0,0"
+                                    ToolTip="Settings"
+                                    Click="SettingsBtn_Click">
+                                <Path Style="{StaticResource ButtonIconPath}" Data="{StaticResource IconGear}"/>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Pending approvals / HITL questions / completion cards -->
+                    <StackPanel x:Name="ActionCardsHost"/>
+                    <StackPanel x:Name="CompletionCardsHost"/>
+
+                    <!-- Live sessions -->
+                    <ScrollViewer x:Name="SessionsScroll"
+                                  MaxHeight="330"
+                                  VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  Focusable="False">
+                        <StackPanel x:Name="SessionsHost"/>
+                    </ScrollViewer>
+
+                    <!-- Empty state -->
+                    <StackPanel x:Name="EmptyStatePanel" Visibility="Collapsed" Margin="0,14,0,16">
+                        <Viewbox Width="46" Height="46" HorizontalAlignment="Center">
+                            <controls:BarsGlyph x:Name="EmptyBars"
+                                                Width="28" Height="28"
+                                                Animate="False"
+                                                Tint="#F1EAD9"/>
+                        </Viewbox>
+                        <TextBlock x:Name="EmptyTitle"
+                                   Text="暂无活跃会话"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="#E7EBF2"
+                                   HorizontalAlignment="Center"
+                                   Margin="0,14,0,0"/>
+                        <TextBlock x:Name="EmptyHint"
+                                   Text=""
+                                   FontSize="11.5"
+                                   Foreground="#6E7A8C"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   MaxWidth="360"
+                                   HorizontalAlignment="Center"
+                                   LineHeight="18"
+                                   Margin="0,7,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </controls:AnimatedCornerBorder>
+</Window>
+

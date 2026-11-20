@@ -1,0 +1,29 @@
+Open Island for Windows 11  —  安装说明 / Installation notes
+============================================================
+
+本安装包会安装：
+  • 灵动岛主程序（OpenIsland.exe，自包含，无需预装 .NET 运行时）
+  • Hook 命令行（OpenIslandHooks.exe，供 Claude Code / Codex / Gemini / Cursor 等 Agent 调用）
+  • 安装器 CLI（OpenIslandSetup.exe，可在命令行管理各 Agent 的 Hook）
+  • 全部 Agent 插件（plugins\，含 OpenCode / Pi / Claude 用量状态栏脚本）
+
+安装位置：
+  默认按当前用户安装到  %LOCALAPPDATA%\Programs\Open Island
+  （无需管理员权限；安装向导中也可切换为“为所有用户安装”到 Program Files）
+
+安装完成后：
+  1. 启动 Open Island，灵动岛会悬浮在屏幕顶部中央，可用 Ctrl+Alt+I 显示/隐藏。
+  2. 打开设置（悬停灵动岛 → 齿轮，或托盘图标右键 → 设置）。
+  3. 在「Agent 接入」页为常用 Agent 一键安装 Hook/插件，然后重启对应 Agent。
+  4. 在「连接状态」页可点「运行连接自检」，验证 Hook → 管道 → 界面链路是否正常。
+
+卸载：
+  Windows 设置 → 应用 → 已安装的应用 → Open Island → 卸载
+  （用户配置与日志保留在 %LOCALAPPDATA%\OpenIsland，可手动删除。）
+
+帮助与日志：
+  %LOCALAPPDATA%\OpenIsland\logs\open-island.log
+  设置 → 连接状态 → 打开日志
+
+许可证：GNU General Public License v3.0
+上游项目：https://github.com/Octane0411/open-vibe-island
