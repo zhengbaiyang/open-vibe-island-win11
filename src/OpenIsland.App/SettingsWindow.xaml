@@ -1188,8 +1188,8 @@
                                         <TranslateTransform/>
                                     </Border.RenderTransform>
                                     <StackPanel Orientation="Horizontal">
-                                        <Path Data="{StaticResource IconCheck}" Width="10" Height="9" Stretch="Uniform"
-                                              Fill="#6FB982" VerticalAlignment="Center"/>
+                                        <Path x:Name="SaveToastIcon" Data="{StaticResource IconCheck}" Width="11" Height="10"
+                                              Stretch="Uniform" Fill="#6FB982" VerticalAlignment="Center"/>
                                         <TextBlock x:Name="SaveToastText" FontSize="11" Foreground="#8ED7A5"
                                                    Margin="6,0,0,0" VerticalAlignment="Center"/>
                                     </StackPanel>

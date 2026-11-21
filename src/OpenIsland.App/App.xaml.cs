@@ -48,6 +48,8 @@ public partial class App : System.Windows.Application
     private readonly CancellationTokenSource _shutdownCts = new();
     private readonly SemaphoreSlim _updateCheckLock = new(1, 1);
     private bool _isShuttingDown;
+    private volatile UpdateCheckResult? _lastUpdateCheck;
+    private volatile bool _isCheckingForUpdates;
 
     public AppSettings Settings { get; private set; } = new();
     public SessionStateReducer Reducer { get; } = new();
@@ -57,8 +59,16 @@ public partial class App : System.Windows.Application
     public CodexAppServerClient? CodexServer { get; private set; }
     public IslandWindow? Island { get; private set; }
     public UpdateService Updater { get; private set; } = null!;
-    public UpdateCheckResult? LastUpdateCheck { get; private set; }
-    public bool IsCheckingForUpdates { get; private set; }
+    public UpdateCheckResult? LastUpdateCheck
+    {
+        get => _lastUpdateCheck;
+        private set => _lastUpdateCheck = value;
+    }
+    public bool IsCheckingForUpdates
+    {
+        get => _isCheckingForUpdates;
+        private set => _isCheckingForUpdates = value;
+    }
     public event Action<UpdateCheckResult>? UpdateCheckCompleted;
     private SettingsWindow? _settingsWindow;
     private UpdateWindow? _updateWindow;
@@ -445,9 +455,10 @@ public partial class App : System.Windows.Application
         await _updateCheckLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            IsCheckingForUpdates = true;
+            _isCheckingForUpdates = true;
             var result = await Updater.CheckForUpdatesAsync(ct).ConfigureAwait(false);
-            LastUpdateCheck = result;
+            _lastUpdateCheck = result;
+            _isCheckingForUpdates = false;
             try
             {
                 UpdateCheckCompleted?.Invoke(result);
@@ -460,7 +471,7 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            IsCheckingForUpdates = false;
+            _isCheckingForUpdates = false;
             _updateCheckLock.Release();
         }
     }

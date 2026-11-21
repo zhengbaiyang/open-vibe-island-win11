@@ -676,6 +676,8 @@ public partial class SettingsWindow : Window
         SaveToast.BorderBrush = new SolidColorBrush(ok
             ? Color.FromArgb(255, 44, 88, 67)
             : Color.FromArgb(255, 110, 48, 58));
+        SaveToastIcon.Data = (Geometry)FindResource(ok ? "IconCheck" : "IconAlert");
+        SaveToastIcon.Fill = new SolidColorBrush(ok ? GreenColor : DangerColor);
         SaveToastText.Foreground = new SolidColorBrush(ok ? ColorFromHex("#8ED7A5") : DangerColor);
         SaveToast.Visibility = Visibility.Visible;
         SaveToast.Opacity = 0;
