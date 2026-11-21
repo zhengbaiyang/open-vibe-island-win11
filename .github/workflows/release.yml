@@ -165,12 +165,50 @@ jobs:
             Write-Host "  [SHA256 OK] $name -> $actual"
           }
 
+      - name: Extract release notes from CHANGELOG.md
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = $env:RELEASE_VERSION
+          $changelog = Join-Path $PWD "CHANGELOG.md"
+          if (-not (Test-Path $changelog)) {
+            throw "CHANGELOG.md not found. Add a '## [$ver]' section before releasing."
+          }
+
+          $lines = Get-Content -Path $changelog -Encoding UTF8
+          $headerPattern = '^##\s+\[?v?' + [regex]::Escape($ver) + '\]?(\s|$)'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match $headerPattern) { $start = $i + 1; break }
+          }
+          if ($start -lt 0) {
+            throw "CHANGELOG.md has no '## [$ver]' section. Document this release before tagging."
+          }
+
+          $section = New-Object System.Collections.Generic.List[string]
+          for ($i = $start; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^##\s' -or $lines[$i] -match '^\[[^\]]+\]:\s') { break }
+            $section.Add($lines[$i])
+          }
+          $body = ($section -join "`n").Trim()
+          if ([string]::IsNullOrWhiteSpace($body)) {
+            throw "CHANGELOG.md section for $ver is empty."
+          }
+
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          Set-Content -Path $notesPath -Value $body -Encoding UTF8
+          Write-Host "Release notes for v${ver}:"
+          Write-Host $body
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Open Island v${{ steps.version.outputs.version }}
           prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          body_path: ${{ runner.temp }}/release-notes.md
           generate_release_notes: true
           fail_on_unmatched_files: true
           files: |
