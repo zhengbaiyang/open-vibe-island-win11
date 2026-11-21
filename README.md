@@ -42,6 +42,7 @@ Open Island 把 AI 编程 Agent 的实时状态放进屏幕顶部的一枚「灵
 - **用量监控**：Claude Code 5 小时 / 7 天额度等。
 - **会话去重**：Codex 定时任务、子代理与 Guardian review 线程不会在岛上堆积；重复任务自动合并。
 - **安全地安装 Hooks**：Codex 使用官方 `hooks.json`（兼容 ChatGPT/Codex App），启动时自动迁移旧配置，不会写坏 `config.toml`。
+- **应用内自动更新**：启动时自动检查 GitHub Releases 最新稳定版，下载前严格校验 `SHA256SUMS.txt`（SHA-256），同时支持安装版（静默覆盖升级）与便携版 ZIP 原地更新，并可在设置中开关自动检查或随时手动检查更新。
 - **中英双语界面**、深色主题（纯黑 / 石墨灰）、顶部 / 底部停靠、多显示器选择、全局快捷键 `Ctrl+Alt+I`。
 
 ## 界面
@@ -66,6 +67,12 @@ Open Island 把 AI 编程 Agent 的实时状态放进屏幕顶部的一枚「灵
    - 或下载 `OpenIsland-0.1.4-smartscreen-helper.zip`，按里面的说明运行 `Unblock-and-Install.cmd`。
 3. 如果安装时报「无法创建目录 …\Temp\is-*.tmp（错误 5: 拒绝访问）」，说明用户临时目录权限异常：使用助手包中的 `Unblock-and-Install.cmd`（会自动改用可写临时目录），或直接使用便携版。
 4. 打开 **设置 → Agent 接入**，为正在使用的 Agent 点击「安装 / 修复」以接入 Hooks。Codex 若提示信任 Hook，请在 Codex 中执行一次 `/hooks` 确认。
+
+**自动更新**
+
+- Open Island 会在启动时自动向 GitHub Releases 检查最新稳定版（可在 **设置 → 常规** 中关闭「自动检查更新」，或在 **设置 → 关于** / 托盘菜单中点击「检查更新」手动检查）。
+- 下载更新包前会严格校验 Release 附带的 `SHA256SUMS.txt`（SHA-256 哈希不匹配或缺失时将拒绝执行）。
+- **安装版**会自动执行静默覆盖升级并重启；**便携版**会自动校验并解压替换当前目录文件后重启；**开发构建**则直接打开 Release 页面供查看。
 
 ## 编译与运行
 
@@ -94,6 +101,7 @@ cd open-vibe-island-win11
 **生成发布产物**
 
 ```powershell
+# 默认从 Directory.Build.props 读取版本号；也可传入 -Version 0.1.5 覆盖
 # 自包含、无需目标机安装 .NET
 .\scripts\package.ps1 -PortableZip
 
@@ -104,19 +112,21 @@ cd open-vibe-island-win11
 #   dist\SHA256SUMS.txt
 ```
 
-发布到 GitHub Release 时，把上面三个文件作为 assets 上传即可。
+- **手动发布**：上传 GitHub Release 时，**必须把上面全部 4 个文件（包括 `SHA256SUMS.txt`）作为 assets 一起上传**——应用内自动更新会严格校验 `SHA256SUMS.txt`。
+- **自动发布（推荐）**：直接推送 `vX.Y.Z` 标签（例如 `git tag v0.1.5 && git push origin v0.1.5`），或在 GitHub Actions 中手动触发 **Release** 工作流（`.github/workflows/release.yml`），会自动完成构建、打包、SHA-256 校验并发布包含全部 4 个文件的 GitHub Release。
 
 ## 架构与目录
 
 ```
 src/
   OpenIsland.App/       WPF 灵动岛 UI、设置窗口、托盘
-  OpenIsland.Core/      会话状态、Hook 协议、发现、安装管理、桥接
+  OpenIsland.Core/      会话状态、Hook 协议、发现、安装管理、桥接、自动更新
   OpenIsland.Hooks/     Agent Hook 命令行接收器
   OpenIsland.Setup/     OpenIslandSetup CLI（安装/检查/卸载 Hooks）
 plugins/                OpenCode / Pi / Oh My Pi 扩展
 installer/              Inno Setup 脚本与图标
 scripts/                build.ps1、package.ps1
+.github/workflows/      GitHub Actions 自动构建与发布工作流
 docs/screenshots/       README 截图与演示动图
 ```
 

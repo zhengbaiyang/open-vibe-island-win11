@@ -23,7 +23,7 @@
 #define AppName "Open Island"
 #define AppShortName "OpenIsland"
 #define AppPublisher "Open Island"
-#define AppURL "https://github.com/Octane0411/open-vibe-island"
+#define AppURL "https://github.com/zhengbaiyang/open-vibe-island-win11"
 #define AppExeName "OpenIsland.exe"
 
 [Setup]
@@ -99,7 +99,8 @@ Name: "{autoprograms}\卸载 {#AppName}"; Filename: "{uninstallexe}"; Comment: "
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon; Check: not SetupTestMode
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent; Check: not IsAutoUpdate and not SetupTestMode
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall; Check: IsAutoUpdate and not SetupTestMode
 
 [UninstallRun]
 ; Make sure the floating island is not running while its files are removed.
@@ -116,16 +117,85 @@ begin
   Result := CompareText(GetEnv('OPEN_ISLAND_SETUP_TEST'), '1') = 0;
 end;
 
-{ Close a running island before overwriting files (also covers upgrades). }
+{ Returns True when invoked with /AUTOUPDATE (for unattended in-app updates that want
+  the installer itself to relaunch Open Island after a silent upgrade). }
+function IsAutoUpdate(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), '/AUTOUPDATE') = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function IsAppMutexPresent(): Boolean;
+begin
+  Result := CheckForMutexes('Local\OpenIslandWin11SingleInstance');
+end;
+
+function IsInstalledExeLocked(): Boolean;
+var
+  ExePath: String;
+  Stream: TFileStream;
+begin
+  Result := False;
+  ExePath := ExpandConstant('{app}\{#AppExeName}');
+  if not FileExists(ExePath) then
+    Exit;
+  try
+    Stream := TFileStream.Create(ExePath, fmOpenReadWrite);
+    Stream.Free;
+  except
+    Result := True;
+  end;
+end;
+
+function IsAppBusy(): Boolean;
+begin
+  Result := IsAppMutexPresent() or IsInstalledExeLocked();
+end;
+
+{ Wait for a running island to finish exiting (or force-close it) before overwriting files. }
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
+  Attempt: Integer;
 begin
   if CurStep = ssInstall then
   begin
-    Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#AppExeName} /F >nul 2>&1',
-      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Sleep(250);
+    { During auto-update, give the app a brief grace window to finish exiting cleanly
+      and release file handles before force-killing. }
+    if IsAutoUpdate() then
+    begin
+      Attempt := 0;
+      while (Attempt < 16) and IsAppBusy() do
+      begin
+        Sleep(250);
+        Attempt := Attempt + 1;
+      end;
+    end;
+
+    { Force-close if still running or locked, then wait until both the process mutex
+      and executable file lock have cleared before Inno Setup overwrites files. }
+    if IsAppBusy() then
+    begin
+      Exec(ExpandConstant('{cmd}'), '/C taskkill /IM {#AppExeName} /F >nul 2>&1',
+        '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+
+      Attempt := 0;
+      while (Attempt < 20) and IsAppBusy() do
+      begin
+        Sleep(250);
+        Attempt := Attempt + 1;
+      end;
+      Sleep(250);
+    end;
   end;
 end;
 

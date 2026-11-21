@@ -1,23 +1,30 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Builds the Open Island Windows 11 installer (and optional portable ZIP).
 
 .DESCRIPTION
-    Produces a self-contained per-user installer:
+    Produces a self-contained per-user installer and release artifacts in dist\:
       dist\OpenIsland-Setup-<version>-win-x64.exe
-    and optionally:
-      dist\OpenIsland-<version>-portable-win-x64.zip
+      dist\OpenIsland-<version>-portable-win-x64.zip     (when -PortableZip is set)
+      dist\OpenIsland-<version>-smartscreen-helper.zip
+      dist\SHA256SUMS.txt
 
     The payload is a self-contained .NET 8 publish, so end users do NOT need to
     install any .NET runtime. Inno Setup 6.7+ (ISCC.exe) must be installed on the
     build machine; the script auto-detects the standard install locations.
 
+    Note: When uploading a release to GitHub Releases, upload ALL release assets
+    including SHA256SUMS.txt alongside the installer and portable ZIP — the in-app
+    auto-updater strictly requires SHA256SUMS.txt for SHA-256 verification.
+
 .PARAMETER Version
-    4-part installer/assembly version (default 0.1.0).
+    Release/assembly version (3-part e.g. 0.1.4 or 4-part e.g. 0.1.4.0).
+    Defaults to <Version> in Directory.Build.props.
 
 .PARAMETER DisplayVersion
-    Human readable version shown in the installer (default 0.1.0).
+    Human-readable version shown in the installer and product metadata.
+    Defaults to -Version when omitted.
 
 .PARAMETER SkipPublish
     Reuse the existing artifacts\publish\win-x64 staging folder.
@@ -39,10 +46,12 @@
 
 .EXAMPLE
     .\scripts\package.ps1 -PortableZip
+.EXAMPLE
+    .\scripts\package.ps1 -Version 0.1.5 -PortableZip
 #>
 param(
-    [string]$Version = "0.1.4",
-    [string]$DisplayVersion = "0.1.4",
+    [string]$Version = "",
+    [string]$DisplayVersion = "",
     [switch]$SkipPublish,
     [switch]$PortableZip,
     [switch]$Sign,
@@ -54,11 +63,56 @@ param(
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
+$BuildPropsPath = Join-Path $Root "Directory.Build.props"
 $Stage = Join-Path $Root "artifacts\publish\win-x64"
 $Dist = Join-Path $Root "dist"
 $InstallerDir = Join-Path $Root "installer"
 $IconPath = Join-Path $InstallerDir "OpenIsland.ico"
 $SignScript = Join-Path $InstallerDir "sign.ps1"
+
+function Resolve-DefaultVersion([string]$PropsPath) {
+    if (-not (Test-Path $PropsPath)) {
+        throw "Cannot resolve default version: Directory.Build.props not found at '$PropsPath'. Pass -Version explicitly."
+    }
+    [xml]$propsXml = Get-Content -Path $PropsPath -Raw -Encoding UTF8
+    $versionNodes = @(
+        $propsXml.SelectNodes("/*[local-name()='Project']/*[local-name()='PropertyGroup']/*[local-name()='Version']") |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_.InnerText) }
+    )
+    if ($versionNodes.Count -eq 0) {
+        throw "Cannot resolve default version: <Version> element not found or empty in '$PropsPath'. Pass -Version explicitly."
+    }
+    return $versionNodes[0].InnerText.Trim()
+}
+
+function Resolve-FourPartVersion([string]$Ver) {
+    $trimmed = $Ver.Trim()
+    if ($trimmed -match '^\d+\.\d+\.\d+\.\d+$') {
+        return $trimmed
+    }
+    if ($trimmed -match '^\d+\.\d+\.\d+$') {
+        return "$trimmed.0"
+    }
+    throw "Invalid -Version '$Ver'. Expected a 3-part (e.g. 0.1.4) or 4-part (e.g. 0.1.4.0) numeric version."
+}
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $Version = Resolve-DefaultVersion $BuildPropsPath
+} else {
+    $Version = $Version.Trim()
+}
+
+$FourPartVersion = Resolve-FourPartVersion $Version
+
+if ([string]::IsNullOrWhiteSpace($DisplayVersion)) {
+    $DisplayVersion = $Version
+} else {
+    $DisplayVersion = $DisplayVersion.Trim()
+}
+
+$InformationalVersion = if ($DisplayVersion.EndsWith("-win11")) { $DisplayVersion } else { "$DisplayVersion-win11" }
+
+Write-Host "Packaging Open Island v$Version (DisplayVersion: $DisplayVersion, FileVersion: $FourPartVersion)" -ForegroundColor Cyan
 
 # Signing is opt-in and requires a real PFX (paid EV/OV certificate recommended).
 $SigningEnabled = $Sign -or (-not [string]::IsNullOrWhiteSpace($PfxPath))
@@ -90,13 +144,16 @@ function Find-Tool([string[]]$Candidates) {
     return $null
 }
 
-$iscc = Find-Tool @(
+$isccCmd = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
+$isccCandidates = @(
     (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     "C:\Program Files\Inno Setup 6\ISCC.exe",
     "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
     "C:\Program Files\Inno Setup 7\ISCC.exe"
 )
+if ($isccCmd -and $isccCmd.Source) { $isccCandidates += $isccCmd.Source }
+$iscc = Find-Tool $isccCandidates
 if (-not $iscc) {
     throw @"
 Inno Setup compiler (ISCC.exe) not found.
@@ -125,6 +182,10 @@ if (-not $SkipPublish) {
         & dotnet publish (Join-Path $Root $project) `
             -c Release -r win-x64 --self-contained true `
             -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false `
+            "-p:Version=$Version" `
+            "-p:FileVersion=$FourPartVersion" `
+            "-p:AssemblyVersion=$FourPartVersion" `
+            "-p:InformationalVersion=$InformationalVersion" `
             -o $Stage -v q
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $project" }
     }
@@ -251,8 +312,9 @@ if ($helperNames.Count -gt 0) {
 Write-Step "Writing SHA256 checksums"
 $checksumFile = Join-Path $Dist "SHA256SUMS.txt"
 $lines = @()
+$versionPattern = [regex]::Escape($Version)
 Get-ChildItem $Dist -File | Where-Object {
-    $_.Name -match '^(OpenIsland-Setup-|OpenIsland-.*-portable-win-x64\.zip$|OpenIsland-.*-smartscreen-helper\.zip$)'
+    $_.Name -match "^(OpenIsland-Setup-$versionPattern-win-x64\.exe|OpenIsland-$versionPattern-portable-win-x64\.zip|OpenIsland-$versionPattern-smartscreen-helper\.zip)$"
 } | Sort-Object Name | ForEach-Object {
     $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
     $lines += "$hash  $($_.Name)"
@@ -262,6 +324,10 @@ $lines | ForEach-Object { Write-Host "  $_" }
 
 Write-Host ""
 Write-Host "Done. Artifacts in: $Dist" -ForegroundColor Green
-Write-Host "Build is UNSIGNED (SmartScreen will warn on first download). Ship the *-smartscreen-helper.zip" -ForegroundColor Yellow
-Write-Host "and/or tell users to right-click the installer -> Properties -> Unblock before running." -ForegroundColor Yellow
-Write-Host "To sign public releases later, pass a paid EV/OV certificate: .\scripts\package.ps1 -PortableZip -Sign -PfxPath cert.pfx" -ForegroundColor Yellow
+Write-Host "GitHub Release upload: upload ALL artifacts including SHA256SUMS.txt alongside the installer and portable ZIP" -ForegroundColor Cyan
+Write-Host "(SHA256SUMS.txt is strictly required for in-app auto-updates to verify downloaded packages)." -ForegroundColor Cyan
+if (-not $SigningEnabled) {
+    Write-Host "Build is UNSIGNED (SmartScreen will warn on first download). Ship the *-smartscreen-helper.zip" -ForegroundColor Yellow
+    Write-Host "and/or tell users to right-click the installer -> Properties -> Unblock before running." -ForegroundColor Yellow
+    Write-Host "To sign public releases later, pass a paid EV/OV certificate: .\scripts\package.ps1 -PortableZip -Sign -PfxPath cert.pfx" -ForegroundColor Yellow
+}

@@ -42,6 +42,7 @@ It stays out of the taskbar, collapses into a small pill, and expands automatica
 - **Usage monitoring**: Claude Code 5-hour / 7-day limits and more.
 - **Session de-duplication**: Codex scheduled tasks, subagent threads and Guardian reviews no longer pile up identical rows; recurring tasks are coalesced.
 - **Safe hook installation**: Codex uses the official `hooks.json` format (compatible with the ChatGPT/Codex app), automatically migrates legacy configs, and never corrupts `config.toml`.
+- **In-app auto-updates**: automatically checks GitHub Releases for new stable versions on startup, strictly verifies downloads against `SHA256SUMS.txt` (SHA-256), and supports both installed (silent in-place upgrade) and portable ZIP updates, with a Settings toggle and manual check.
 - **Bilingual UI** (Chinese / English), dark themes, top/bottom docking, multi-monitor selection and a global `Ctrl+Alt+I` hotkey.
 
 ## Screenshots
@@ -66,6 +67,12 @@ It stays out of the taskbar, collapses into a small pill, and expands automatica
    - or download `OpenIsland-0.1.4-smartscreen-helper.zip` and follow `Unblock-and-Install.cmd`.
 3. If the installer reports “Unable to create directory …\Temp\is-*.tmp (Error 5: Access is denied)”, your per-user temp folder is not writable. Use `Unblock-and-Install.cmd` from the helper zip (it redirects the installer temp folder), or use the portable ZIP.
 4. Open **Settings → Agent connection** and click **Install / Repair** for the agents you use. If Codex asks to trust hooks, run `/hooks` once in Codex.
+
+**Auto-updates**
+
+- Open Island automatically checks GitHub Releases for new stable versions on startup. You can toggle **Auto-check for updates** under **Settings → General**, or trigger a manual check anytime from **Settings → About** or the tray menu (**Check for updates**).
+- Every update package is strictly verified against `SHA256SUMS.txt` from the release before anything runs (missing or mismatched checksums are rejected).
+- **Installed builds** run a silent in-place Inno Setup upgrade and relaunch automatically; **portable builds** verify, stage, replace the app directory, and relaunch; **development builds** open the GitHub Release page in your browser.
 
 ## Build & run
 
@@ -94,6 +101,7 @@ cd open-vibe-island-win11
 **Release artifacts**
 
 ```powershell
+# Reads <Version> from Directory.Build.props by default (or override with -Version 0.1.5)
 # Self-contained; target PCs do not need the .NET runtime
 .\scripts\package.ps1 -PortableZip
 
@@ -104,19 +112,21 @@ cd open-vibe-island-win11
 #   dist\SHA256SUMS.txt
 ```
 
-Upload the three artifacts above as GitHub Release assets.
+- **Manual release**: upload **all 4 files above — including `SHA256SUMS.txt`** — as GitHub Release assets. `SHA256SUMS.txt` is strictly required for in-app auto-updates.
+- **Automated release (recommended)**: push a `vX.Y.Z` tag (e.g. `git tag v0.1.5 && git push origin v0.1.5`) or run the **Release** workflow (`.github/workflows/release.yml`) manually via `workflow_dispatch` to automatically build, package, verify checksums, and publish the GitHub Release with all 4 assets.
 
 ## Architecture
 
 ```
 src/
   OpenIsland.App/       WPF island UI, settings window, tray
-  OpenIsland.Core/      session state, hook protocol, discovery, install manager, bridge
+  OpenIsland.Core/      session state, hook protocol, discovery, install manager, bridge, auto-updater
   OpenIsland.Hooks/     agent hook CLI receiver
   OpenIsland.Setup/     OpenIslandSetup CLI (install / status / uninstall hooks)
 plugins/                OpenCode / Pi / Oh My Pi extensions
 installer/              Inno Setup script and icons
 scripts/                build.ps1, package.ps1
+.github/workflows/      GitHub Actions automated build & release workflow
 docs/screenshots/       README screenshots and demo GIF
 ```
 

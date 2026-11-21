@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (X.Y.Z, e.g. 0.1.5). Leave blank to use Directory.Build.props.'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: 'Publish as a GitHub prerelease'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Windows Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $propsPath = Join-Path $PWD "Directory.Build.props"
+          if (-not (Test-Path $propsPath)) {
+            throw "Directory.Build.props not found at $propsPath"
+          }
+
+          [xml]$propsXml = Get-Content -Path $propsPath -Raw -Encoding UTF8
+          $propsNode = $propsXml.SelectNodes("/*[local-name()='Project']/*[local-name()='PropertyGroup']/*[local-name()='Version']") |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_.InnerText) } |
+            Select-Object -First 1
+          $propsVersion = if ($propsNode) { $propsNode.InnerText.Trim() } else { "" }
+
+          if ($env:EVENT_NAME -eq "push") {
+            $rawVersion = $env:REF_NAME -replace '^[vV]', ''
+            $tagName = $env:REF_NAME
+            $isPrerelease = "false"
+          } else {
+            if (-not [string]::IsNullOrWhiteSpace($env:INPUT_VERSION)) {
+              $rawVersion = $env:INPUT_VERSION.Trim() -replace '^[vV]', ''
+            } else {
+              $rawVersion = $propsVersion
+            }
+            $tagName = "v$rawVersion"
+            $isPrerelease = if ($env:INPUT_PRERELEASE -eq "true") { "true" } else { "false" }
+          }
+
+          if ($rawVersion -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Invalid release version '$rawVersion' (expected semantic version X.Y.Z, e.g. 0.1.5)."
+          }
+
+          Write-Host "Resolved release version : $rawVersion"
+          Write-Host "Release tag              : $tagName"
+          Write-Host "Directory.Build.props    : $propsVersion"
+          Write-Host "Prerelease               : $isPrerelease"
+
+          if ($propsVersion -and ($propsVersion -ne $rawVersion)) {
+            Write-Host "::warning::Release version '$rawVersion' differs from Directory.Build.props '<Version>$propsVersion</Version>'. Passing -Version $rawVersion to scripts/package.ps1 so assemblies, installer, portable ZIP, and tag match."
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$rawVersion"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tagName"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "prerelease=$isPrerelease"
+
+      - name: Setup .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Inno Setup 6
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          choco upgrade innosetup --no-progress -y
+
+          $candidates = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe",
+            (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
+          )
+          $isccCmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if ($isccCmd -and $isccCmd.Source) { $candidates += $isccCmd.Source }
+
+          $iscc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $iscc) {
+            throw "Inno Setup compiler (ISCC.exe) not found after installation."
+          }
+          Write-Host "Verified ISCC.exe: $iscc"
+
+      - name: Build and package release artifacts
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          .\scripts\package.ps1 -Version $env:RELEASE_VERSION -DisplayVersion $env:RELEASE_VERSION -PortableZip
+
+      - name: Verify release artifacts and SHA256SUMS.txt
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $ver = $env:RELEASE_VERSION
+          $dist = Join-Path $PWD "dist"
+
+          $expectedAssets = @(
+            "OpenIsland-Setup-$ver-win-x64.exe",
+            "OpenIsland-$ver-portable-win-x64.zip",
+            "OpenIsland-$ver-smartscreen-helper.zip"
+          )
+          $checksumPath = Join-Path $dist "SHA256SUMS.txt"
+
+          foreach ($name in ($expectedAssets + @("SHA256SUMS.txt"))) {
+            $full = Join-Path $dist $name
+            if (-not (Test-Path $full)) {
+              throw "Expected release artifact missing: $full"
+            }
+            $sizeMb = [math]::Round((Get-Item $full).Length / 1MB, 2)
+            Write-Host "  [OK] $name ($sizeMb MB)"
+          }
+
+          $sumMap = @{}
+          foreach ($line in (Get-Content -Path $checksumPath -Encoding ASCII)) {
+            if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+)$') {
+              $sumMap[$Matches[2].Trim()] = $Matches[1].ToLowerInvariant()
+            }
+          }
+          foreach ($name in $expectedAssets) {
+            if (-not $sumMap.ContainsKey($name)) {
+              throw "SHA256SUMS.txt is missing entry for '$name'"
+            }
+            $actual = (Get-FileHash (Join-Path $dist $name) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($sumMap[$name] -ne $actual) {
+              throw "SHA256 mismatch for '$name': expected $($sumMap[$name]), actual $actual"
+            }
+            Write-Host "  [SHA256 OK] $name -> $actual"
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Open Island v${{ steps.version.outputs.version }}
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/OpenIsland-Setup-${{ steps.version.outputs.version }}-win-x64.exe
+            dist/OpenIsland-${{ steps.version.outputs.version }}-portable-win-x64.zip
+            dist/OpenIsland-${{ steps.version.outputs.version }}-smartscreen-helper.zip
+            dist/SHA256SUMS.txt
