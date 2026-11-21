@@ -12,6 +12,7 @@ using OpenIsland.Core.Discovery;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Models;
 using OpenIsland.Core.Setup;
+using OpenIsland.Core.Updates;
 using Forms = System.Windows.Forms;
 
 namespace OpenIsland.App;
@@ -26,6 +27,7 @@ public partial class SettingsWindow : Window
 
     private readonly string _appVersion;
     private bool _controlsReady;
+    private bool _isManualUpdateChecking;
     private string _currentPageKey = "connection";
     private ScrollViewer? _activePage;
 
@@ -40,10 +42,8 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         _app = app;
 
-        var version = Assembly.GetExecutingAssembly().GetName().Version;
-        _appVersion = version is null
-            ? "1.0.0"
-            : $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
+        _appVersion = _app.Updater?.CurrentVersion
+            ?? UpdateService.GetCurrentAppVersion(Assembly.GetExecutingAssembly());
 
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) =>
@@ -75,6 +75,9 @@ public partial class SettingsWindow : Window
         RefreshUsageCards();
         UpdateConnectionPage();
         UpdateAppearancePreview();
+        UpdateAboutUpdateCard();
+
+        _app.UpdateCheckCompleted += OnUpdateCheckCompleted;
 
         MonitorCombo.SelectionChanged += (_, _) =>
         {
@@ -254,6 +257,7 @@ public partial class SettingsWindow : Window
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _app.UpdateCheckCompleted -= OnUpdateCheckCompleted;
         _connectionTimer.Stop();
         _saveToastTimer.Stop();
         _agentsFeedbackTimer.Stop();
@@ -337,6 +341,9 @@ public partial class SettingsWindow : Window
                 break;
             case "general":
                 ScheduleLanguageSegmentPillSync();
+                break;
+            case "about":
+                UpdateAboutUpdateCard();
                 break;
         }
     }
@@ -440,6 +447,8 @@ public partial class SettingsWindow : Window
         LanguageHintText.Text = Strings.Get("LanguageHint");
         StartupLabel.Text = Strings.Get("LaunchAtStartup");
         StartupHintText.Text = Strings.Get("StartupHint");
+        AutoCheckUpdatesLabel.Text = Strings.Get("AutoCheckUpdates");
+        AutoCheckUpdatesHintText.Text = Strings.Get("AutoCheckUpdatesHint");
         NotificationTitle.Text = Strings.Get("NotificationSection");
         SoundLabel.Text = Strings.Get("EnableSound");
         SoundHintText.Text = Strings.Get("SoundHint");
@@ -470,6 +479,9 @@ public partial class SettingsWindow : Window
         AboutVersionText.Text = string.Format(Strings.Get("VersionFormat"), _appVersion);
         AboutTaglineText.Text = Strings.Get("AboutTagline");
         AboutTechText.Text = Strings.Get("AboutTech");
+        AboutUpdateTitle.Text = Strings.Get("SoftwareUpdate");
+        AboutOpenUpdateText.Text = Strings.Get("UpdateNow");
+        WinRepoLabel.Text = Strings.Get("WinRepoLabel");
         UpstreamLabel.Text = Strings.Get("AboutUpstream");
         LicenseLabel.Text = Strings.Get("AboutLicense");
         LicenseValueText.Text = Strings.Get("LicenseValue");
@@ -482,8 +494,10 @@ public partial class SettingsWindow : Window
         PrivacyDescText.Text = Strings.Get("PrivacyDesc");
         DataDirPathText.Text = BridgeConstants.AppDataDir;
         DataDirPathText.ToolTip = BridgeConstants.AppDataDir;
-        UpstreamLinkButton.ToolTip = Strings.Get("ViewSource");
+        WinRepoLinkButton.ToolTip = $"{Strings.Get("OpenRepoWindows")} ({UpdateService.RepositoryUrl})";
+        UpstreamLinkButton.ToolTip = $"{Strings.Get("ViewSource")} (https://github.com/Octane0411/open-vibe-island)";
         CopyDataDirButton.ToolTip = Strings.Get("Copy");
+        UpdateAboutUpdateCard();
     }
 
     private static string FormatHotkey(string? hotkey)
@@ -522,6 +536,7 @@ public partial class SettingsWindow : Window
         LanguageEnSegment.IsChecked = isEnglish;
 
         StartupToggle.IsChecked = s.LaunchAtStartup;
+        AutoCheckUpdatesToggle.IsChecked = s.AutoCheckForUpdates;
         SoundToggle.IsChecked = s.SoundEnabled;
         AutoExpandApprovalToggle.IsChecked = s.AutoExpandOnApproval;
         AutoExpandCompleteToggle.IsChecked = s.AutoExpandOnCompletion;
@@ -607,6 +622,8 @@ public partial class SettingsWindow : Window
                 ? IslandThemeStyle.Graphite
                 : IslandThemeStyle.PureBlack,
             LaunchAtStartup = StartupToggle.IsChecked == true,
+            AutoCheckForUpdates = AutoCheckUpdatesToggle.IsChecked == true,
+            SkippedUpdateVersion = previous.SkippedUpdateVersion,
             SoundEnabled = SoundToggle.IsChecked == true,
             NotificationSound = (SoundCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString()
                                 ?? previous.NotificationSound,
@@ -622,20 +639,31 @@ public partial class SettingsWindow : Window
             AutoInstallOpenCodePlugin = previous.AutoInstallOpenCodePlugin
         };
 
+        string? applyError = null;
         try
         {
             _app.ApplySettings(updated);
-            ApplyLocalizedLabels();
-            LoadSettingsIntoControls();
-            RefreshAgentRows();
-            RefreshUsageCards();
-            UpdateConnectionPage();
-            UpdateAppearancePreview();
-            ShowSaveToast();
         }
         catch (Exception ex)
         {
-            ShowSaveToast(ex.Message, ok: false);
+            applyError = ex.Message;
+        }
+
+        ApplyLocalizedLabels();
+        LoadSettingsIntoControls();
+        RefreshAgentRows();
+        RefreshUsageCards();
+        UpdateConnectionPage();
+        UpdateAppearancePreview();
+        UpdateAboutUpdateCard();
+
+        if (applyError is null)
+        {
+            ShowSaveToast();
+        }
+        else
+        {
+            ShowSaveToast(applyError, ok: false);
         }
     }
 
@@ -1363,6 +1391,132 @@ public partial class SettingsWindow : Window
         // and do it even when notifications are toggled off so users can pick a scheme first.
         var selected = (SoundCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
         _app.PlayNotificationSound(isUrgent: false, soundOverride: selected, ignoreEnabled: true);
+    }
+
+    private void OnUpdateCheckCompleted(UpdateCheckResult _)
+    {
+        Dispatcher.BeginInvoke(new Action(UpdateAboutUpdateCard));
+    }
+
+    private void UpdateAboutUpdateCard()
+    {
+        if (AboutUpdateStatusChip is null || AboutUpdateDetailText is null) return;
+
+        var mode = _app.LastUpdateCheck?.InstallMode
+            ?? _app.Updater?.InstallMode
+            ?? UpdateService.DetectInstallMode();
+        var modeLabel = FormatInstallMode(mode);
+
+        if (_isManualUpdateChecking || _app.IsCheckingForUpdates)
+        {
+            SetAboutUpdateChip(Strings.Get("UpdateChecking"), AccentColor);
+            AboutUpdateDetailText.Text = $"{Strings.Get("CurrentVersionLabel")} v{_appVersion}  ·  {modeLabel}";
+            AboutOpenUpdateButton.Visibility = Visibility.Collapsed;
+            CheckUpdatesButton.IsEnabled = false;
+            CheckUpdatesButtonText.Text = Strings.Get("UpdateChecking");
+            return;
+        }
+
+        CheckUpdatesButton.IsEnabled = true;
+        CheckUpdatesButtonText.Text = Strings.Get("CheckForUpdates");
+
+        var last = _app.LastUpdateCheck;
+        if (last is { IsUpdateAvailable: true, Release: not null })
+        {
+            SetAboutUpdateChip(Strings.Get("UpdateAvailableSummary", last.Release.Version), AccentColor);
+            AboutUpdateDetailText.Text =
+                $"{Strings.Get("UpdateAvailableSubtitle", _appVersion, last.Release.Version)}  ·  {modeLabel}";
+            AboutOpenUpdateButton.Visibility = Visibility.Visible;
+            AboutOpenUpdateText.Text = Strings.Get("UpdateNow");
+        }
+        else if (last is { Status: UpdateCheckStatus.UpToDate })
+        {
+            SetAboutUpdateChip(Strings.Get("UpdateUpToDate"), GreenColor);
+            AboutUpdateDetailText.Text =
+                $"{Strings.Get("UpdateUpToDateMessage", _appVersion)}  ·  {modeLabel}";
+            AboutOpenUpdateButton.Visibility = Visibility.Collapsed;
+        }
+        else if (last is { Status: UpdateCheckStatus.Failed })
+        {
+            SetAboutUpdateChip(Strings.Get("UpdateCheckFailed"), DangerColor);
+            AboutUpdateDetailText.Text = string.IsNullOrWhiteSpace(last.ErrorMessage)
+                ? Strings.Get("UpdateCheckFailed")
+                : last.ErrorMessage;
+            AboutOpenUpdateButton.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            SetAboutUpdateChip("v" + _appVersion, TertiaryColor);
+            AboutUpdateDetailText.Text = $"{Strings.Get("CurrentVersionLabel")} v{_appVersion}  ·  {modeLabel}";
+            AboutOpenUpdateButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void SetAboutUpdateChip(string text, Color color)
+    {
+        AboutUpdateStatusChipText.Text = text;
+        AboutUpdateStatusChipText.Foreground = new SolidColorBrush(color);
+        AboutUpdateStatusDot.Fill = new SolidColorBrush(color);
+        AboutUpdateStatusChip.Background = AlphaBrush(color, 20);
+        AboutUpdateStatusChip.BorderBrush = AlphaBrush(color, 68);
+    }
+
+    private static string FormatInstallMode(UpdateInstallMode mode) => mode switch
+    {
+        UpdateInstallMode.Installed => Strings.Get("InstallModeInstalled"),
+        UpdateInstallMode.Portable => Strings.Get("InstallModePortable"),
+        _ => Strings.Get("InstallModeDev")
+    };
+
+    private async void CheckUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_isManualUpdateChecking) return;
+        _isManualUpdateChecking = true;
+        UpdateAboutUpdateCard();
+        try
+        {
+            await _app.CheckForUpdatesManualAsync(showNoUpdateDialog: false);
+        }
+        catch (OperationCanceledException)
+        {
+            // App shutting down during check.
+        }
+        catch
+        {
+            // UpdateService already converts errors to UpdateCheckResult.Failed.
+        }
+        finally
+        {
+            _isManualUpdateChecking = false;
+            if (IsLoaded)
+            {
+                UpdateAboutUpdateCard();
+            }
+        }
+    }
+
+    private void AboutOpenUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_app.LastUpdateCheck is { IsUpdateAvailable: true, Release: not null } last)
+        {
+            _app.ShowUpdateWindow(last.Release);
+        }
+    }
+
+    private void WinRepoLinkButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = UpdateService.RepositoryUrl,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Opening the browser must never crash settings.
+        }
     }
 
     private void UpstreamLinkButton_Click(object sender, RoutedEventArgs e)

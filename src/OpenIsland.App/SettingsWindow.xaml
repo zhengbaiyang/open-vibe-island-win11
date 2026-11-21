@@ -753,6 +753,20 @@
                                             <CheckBox x:Name="StartupToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
                                                       VerticalAlignment="Center"/>
                                         </Grid>
+                                        <Border Style="{StaticResource Divider}" Margin="0,14,0,0"/>
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock x:Name="AutoCheckUpdatesLabel" Style="{StaticResource FieldLabelText}"/>
+                                                <TextBlock x:Name="AutoCheckUpdatesHintText" Style="{StaticResource CaptionText}"
+                                                           Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <CheckBox x:Name="AutoCheckUpdatesToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                                                      VerticalAlignment="Center"/>
+                                        </Grid>
                                     </StackPanel>
                                 </Border>
 
@@ -986,6 +1000,55 @@
                                     </Grid>
                                 </Border>
 
+                                <!-- Software Update -->
+                                <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,14,0">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Path Data="{StaticResource IconRefresh}" Fill="#7FA8DF" Width="14" Height="14"
+                                                      Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="AboutUpdateTitle" Style="{StaticResource CardTitleText}"/>
+                                                <Border x:Name="AboutUpdateStatusChip" Style="{StaticResource StatusChip}"
+                                                        Margin="10,0,0,0" Padding="7,2">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse x:Name="AboutUpdateStatusDot" Width="5" Height="5"
+                                                                 VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                        <TextBlock x:Name="AboutUpdateStatusChipText" Style="{StaticResource ChipText}"
+                                                                   FontSize="10"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </StackPanel>
+                                            <TextBlock x:Name="AboutUpdateDetailText" Style="{StaticResource CardDescText}"
+                                                       Margin="0,5,0,0" HorizontalAlignment="Left"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="AboutOpenUpdateButton" Style="{StaticResource AccentButton}"
+                                                    Padding="14,7" FontSize="11.5" Margin="0,0,8,0"
+                                                    Visibility="Collapsed" Click="AboutOpenUpdateButton_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconSparkle}" Width="11" Height="11"
+                                                          Stretch="Uniform" Fill="White" Margin="0,0,6,0"
+                                                          VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="AboutOpenUpdateText" FontSize="11.5" FontWeight="SemiBold"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button x:Name="CheckUpdatesButton" Style="{StaticResource GhostButton}"
+                                                    Click="CheckUpdatesButton_Click">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconRefresh}" Width="12" Height="12"
+                                                          Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                          VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="CheckUpdatesButtonText" FontSize="11.5"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+
                                 <Grid Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
@@ -994,22 +1057,28 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
                                     <Border Grid.Row="0" Grid.Column="0" Style="{StaticResource Card}"
                                             Padding="15" Margin="0,0,6,12">
                                         <StackPanel>
-                                            <TextBlock x:Name="UpstreamLabel" Style="{StaticResource CaptionText}"/>
-                                            <Button x:Name="UpstreamLinkButton" Style="{StaticResource LinkButton}"
-                                                    Margin="0,7,0,0" HorizontalAlignment="Left"
-                                                    Click="UpstreamLinkButton_Click">
-                                                <StackPanel Orientation="Horizontal">
+                                            <TextBlock x:Name="WinRepoLabel" Style="{StaticResource CaptionText}"/>
+                                            <Button x:Name="WinRepoLinkButton" Style="{StaticResource LinkButton}"
+                                                    Margin="0,7,0,0" HorizontalAlignment="Stretch"
+                                                    Click="WinRepoLinkButton_Click">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
                                                     <Path Data="{StaticResource IconExternal}" Width="11" Height="11"
                                                           Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
                                                           Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                                    <TextBlock Text="github.com/Octane0411/open-vibe-island"
-                                                               FontSize="11.5" FontFamily="{StaticResource FontMono}"/>
-                                                </StackPanel>
+                                                    <TextBlock Grid.Column="1" Text="github.com/zhengbaiyang/open-vibe-island-win11"
+                                                               FontSize="11" FontFamily="{StaticResource FontMono}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </Grid>
                                             </Button>
                                         </StackPanel>
                                     </Border>
@@ -1017,14 +1086,37 @@
                                     <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource Card}"
                                             Padding="15" Margin="6,0,0,12">
                                         <StackPanel>
+                                            <TextBlock x:Name="UpstreamLabel" Style="{StaticResource CaptionText}"/>
+                                            <Button x:Name="UpstreamLinkButton" Style="{StaticResource LinkButton}"
+                                                    Margin="0,7,0,0" HorizontalAlignment="Stretch"
+                                                    Click="UpstreamLinkButton_Click">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <Path Data="{StaticResource IconExternal}" Width="11" Height="11"
+                                                          Stretch="Uniform" Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}"
+                                                          Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Grid.Column="1" Text="github.com/Octane0411/open-vibe-island"
+                                                               FontSize="11" FontFamily="{StaticResource FontMono}"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </Grid>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource Card}"
+                                            Padding="15" Margin="0,0,6,12">
+                                        <StackPanel>
                                             <TextBlock x:Name="LicenseLabel" Style="{StaticResource CaptionText}"/>
                                             <TextBlock x:Name="LicenseValueText" FontSize="11.5" FontWeight="SemiBold"
                                                        Margin="0,7,0,0" TextWrapping="Wrap"/>
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Grid.Row="1" Grid.Column="0" Style="{StaticResource Card}"
-                                            Padding="15" Margin="0,0,6,12">
+                                    <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource Card}"
+                                            Padding="15" Margin="6,0,0,12">
                                         <StackPanel>
                                             <TextBlock x:Name="HotkeyCardLabel" Style="{StaticResource CaptionText}"/>
                                             <Border Style="{StaticResource FooterChip}" HorizontalAlignment="Left"
@@ -1035,8 +1127,8 @@
                                         </StackPanel>
                                     </Border>
 
-                                    <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource Card}"
-                                            Padding="15" Margin="6,0,0,12">
+                                    <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource Card}"
+                                            Padding="15" Margin="0,0,0,0">
                                         <StackPanel>
                                             <Grid>
                                                 <TextBlock x:Name="DataDirLabel" Style="{StaticResource CaptionText}"/>

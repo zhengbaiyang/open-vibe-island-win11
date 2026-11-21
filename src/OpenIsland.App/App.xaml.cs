@@ -10,8 +10,10 @@ using OpenIsland.Core.Hooks;
 using OpenIsland.Core.IPC;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Models;
+using OpenIsland.Core.Platform;
 using OpenIsland.Core.Setup;
 using OpenIsland.Core.State;
+using OpenIsland.Core.Updates;
 using Drawing = System.Drawing;
 using Forms = System.Windows.Forms;
 
@@ -43,6 +45,9 @@ public partial class App : System.Windows.Application
     private Forms.NotifyIcon? _trayIcon;
     private DispatcherTimer? _pollTimer;
     private DispatcherTimer? _selfTestTimer;
+    private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly SemaphoreSlim _updateCheckLock = new(1, 1);
+    private bool _isShuttingDown;
 
     public AppSettings Settings { get; private set; } = new();
     public SessionStateReducer Reducer { get; } = new();
@@ -51,7 +56,12 @@ public partial class App : System.Windows.Application
     public HookInstallManager SetupManager { get; } = new();
     public CodexAppServerClient? CodexServer { get; private set; }
     public IslandWindow? Island { get; private set; }
+    public UpdateService Updater { get; private set; } = null!;
+    public UpdateCheckResult? LastUpdateCheck { get; private set; }
+    public bool IsCheckingForUpdates { get; private set; }
+    public event Action<UpdateCheckResult>? UpdateCheckCompleted;
     private SettingsWindow? _settingsWindow;
+    private UpdateWindow? _updateWindow;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -71,6 +81,27 @@ public partial class App : System.Windows.Application
         Settings = AppSettings.Load();
         Strings.CurrentLanguage = Settings.Language;
         Reducer.CoalesceRecurringSessions = Settings.CoalesceRecurringSessions;
+
+        Updater = new UpdateService(currentVersion: UpdateService.GetCurrentAppVersion(Assembly.GetExecutingAssembly()));
+        AppLog.Info($"updater initialized: version={Updater.CurrentVersion}, mode={Updater.InstallMode}, dir='{Updater.AppBaseDir}'");
+
+        if (Settings.LaunchAtStartup)
+        {
+            try
+            {
+                var startupSync = StartupRegistryManager.Apply(true);
+                if (!startupSync.Ok)
+                {
+                    AppLog.Warn($"startup registry sync failed on launch: {startupSync.Error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"startup registry sync threw on launch: {ex.Message}");
+            }
+        }
+
+        _ = Task.Run(() => Updater.CleanupOldUpdateArtifacts());
 
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             AppLog.Error("unhandled exception", args.ExceptionObject as Exception);
@@ -164,6 +195,11 @@ public partial class App : System.Windows.Application
         };
         _pollTimer.Tick += (_, _) => RunDiscoveryPass();
         _pollTimer.Start();
+
+        if (Settings.AutoCheckForUpdates)
+        {
+            _ = RunStartupUpdateCheckAsync();
+        }
     }
 
     public ConnectionDiagnostics GetConnectionDiagnostics()
@@ -319,7 +355,7 @@ public partial class App : System.Windows.Application
         Strings.CurrentLanguage = updated.Language;
         Reducer.CoalesceRecurringSessions = updated.CoalesceRecurringSessions;
         updated.Save();
-        AppLog.Info($"settings saved: lang={updated.Language} edge={updated.EdgePosition} theme={updated.ThemeStyle} monitor={updated.MonitorIndex}");
+        AppLog.Info($"settings saved: lang={updated.Language} edge={updated.EdgePosition} theme={updated.ThemeStyle} monitor={updated.MonitorIndex} startup={updated.LaunchAtStartup} autoUpdate={updated.AutoCheckForUpdates}");
 
         if (_pollTimer != null)
         {
@@ -328,6 +364,184 @@ public partial class App : System.Windows.Application
 
         Island?.ApplyDisplaySettings();
         RebuildTrayMenu();
+
+        var startupResult = StartupRegistryManager.Apply(updated.LaunchAtStartup);
+        if (!startupResult.Ok)
+        {
+            var err = startupResult.Error ?? "Failed to update Windows startup registry entry.";
+            AppLog.Warn($"startup registry sync failed: {err}");
+            throw new InvalidOperationException(err);
+        }
+    }
+
+    private async Task RunStartupUpdateCheckAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), _shutdownCts.Token).ConfigureAwait(false);
+            var result = await CheckForUpdatesCoreAsync(_shutdownCts.Token).ConfigureAwait(false);
+
+            if (result.IsUpdateAvailable && result.Release is not null)
+            {
+                if (string.Equals(result.Release.Version, Settings.SkippedUpdateVersion, StringComparison.OrdinalIgnoreCase))
+                {
+                    AppLog.Info($"startup update check skipped v{result.Release.Version} per user preference");
+                    return;
+                }
+
+                await Dispatcher.InvokeAsync(() => ShowUpdateWindow(result.Release));
+            }
+            else if (result.Status == UpdateCheckStatus.Failed)
+            {
+                AppLog.Warn($"startup background update check failed: {result.ErrorMessage}");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Application is shutting down before startup check completed.
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"startup background update check failed unexpectedly: {ex.Message}");
+        }
+    }
+
+    private async Task TriggerTrayUpdateCheckAsync()
+    {
+        try
+        {
+            await CheckForUpdatesManualAsync(showNoUpdateDialog: true);
+        }
+        catch (OperationCanceledException)
+        {
+            // App shutting down during manual check.
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"tray manual update check failed unexpectedly: {ex.Message}");
+        }
+    }
+
+    public async Task<UpdateCheckResult> CheckForUpdatesManualAsync(bool showNoUpdateDialog, CancellationToken ct = default)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, _shutdownCts.Token);
+        var result = await CheckForUpdatesCoreAsync(linkedCts.Token);
+
+        // Manual checks always ignore SkippedUpdateVersion.
+        if (result.IsUpdateAvailable && result.Release is not null)
+        {
+            await Dispatcher.InvokeAsync(() => ShowUpdateWindow(result.Release));
+        }
+        else if (showNoUpdateDialog)
+        {
+            await Dispatcher.InvokeAsync(() => ShowUpdateStatusWindow(result));
+        }
+
+        return result;
+    }
+
+    private async Task<UpdateCheckResult> CheckForUpdatesCoreAsync(CancellationToken ct)
+    {
+        await _updateCheckLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            IsCheckingForUpdates = true;
+            var result = await Updater.CheckForUpdatesAsync(ct).ConfigureAwait(false);
+            LastUpdateCheck = result;
+            try
+            {
+                UpdateCheckCompleted?.Invoke(result);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"UpdateCheckCompleted subscriber error: {ex.Message}");
+            }
+            return result;
+        }
+        finally
+        {
+            IsCheckingForUpdates = false;
+            _updateCheckLock.Release();
+        }
+    }
+
+    public void ShowUpdateWindow(UpdateReleaseInfo release)
+    {
+        ArgumentNullException.ThrowIfNull(release);
+
+        if (_updateWindow is { IsLoaded: true })
+        {
+            if (!_updateWindow.IsBusy)
+            {
+                _updateWindow.ShowRelease(release);
+            }
+            if (_updateWindow.WindowState == WindowState.Minimized)
+            {
+                _updateWindow.WindowState = WindowState.Normal;
+            }
+            _updateWindow.Activate();
+            return;
+        }
+
+        _updateWindow = new UpdateWindow(this, release);
+        _updateWindow.Closed += (_, _) => _updateWindow = null;
+        _updateWindow.Show();
+        _updateWindow.Activate();
+        AppLog.Info($"update window opened for v{release.Version} (mode={release.InstallMode})");
+    }
+
+    public void ShowUpdateStatusWindow(UpdateCheckResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        if (result.IsUpdateAvailable && result.Release is not null)
+        {
+            ShowUpdateWindow(result.Release);
+            return;
+        }
+
+        if (_updateWindow is { IsLoaded: true })
+        {
+            if (!_updateWindow.IsBusy)
+            {
+                _updateWindow.ShowCheckResult(result);
+            }
+            if (_updateWindow.WindowState == WindowState.Minimized)
+            {
+                _updateWindow.WindowState = WindowState.Normal;
+            }
+            _updateWindow.Activate();
+            return;
+        }
+
+        _updateWindow = new UpdateWindow(this, result);
+        _updateWindow.Closed += (_, _) => _updateWindow = null;
+        _updateWindow.Show();
+        _updateWindow.Activate();
+        AppLog.Info($"update status window opened (status={result.Status})");
+    }
+
+    public void SkipUpdateVersion(string version)
+    {
+        Settings.SkippedUpdateVersion = version;
+        Settings.Save();
+        AppLog.Info($"skipped update version v{version}");
+    }
+
+    public void ShutdownForUpdate(PreparedUpdate prepared)
+    {
+        ArgumentNullException.ThrowIfNull(prepared);
+        if (_isShuttingDown) return;
+
+        // Validate, write apply-update.ps1, and spawn the detached PowerShell helper BEFORE
+        // tearing down the app. The helper waits for our PID to exit before touching app files,
+        // so if script creation or process launch fails the running app remains completely intact.
+        Updater.LaunchUpdateInstaller(prepared, Environment.ProcessId);
+
+        _isShuttingDown = true;
+        AppLog.Info($"==== Open Island shutting down for update to v{prepared.Release.Version} ====");
+        TearDownResources();
+        Shutdown();
     }
 
     private static readonly Dictionary<string, SoundPlayer> WavPlayers = new(StringComparer.OrdinalIgnoreCase);
@@ -420,6 +634,7 @@ public partial class App : System.Windows.Application
         });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Strings.Get("Settings"), null, (_, _) => Dispatcher.Invoke(OpenSettings));
+        menu.Items.Add(Strings.Get("CheckForUpdates"), null, (_, _) => Dispatcher.Invoke(() => _ = TriggerTrayUpdateCheckAsync()));
         menu.Items.Add(Strings.Get("OpenLogs"), null, (_, _) => OpenLogFolder());
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Strings.Get("Quit"), null, (_, _) => Dispatcher.Invoke(ExitApplication));
@@ -444,19 +659,35 @@ public partial class App : System.Windows.Application
         return Drawing.Icon.FromHandle(bmp.GetHicon());
     }
 
-    private void ExitApplication()
+    private void TearDownResources()
     {
-        AppLog.Info("==== Open Island shutting down ====");
-        SessionPersistence.Save(Reducer.GetActiveSessions());
+        try { _shutdownCts.Cancel(); } catch { }
         _pollTimer?.Stop();
+        _selfTestTimer?.Stop();
+        SessionPersistence.Save(Reducer.GetActiveSessions());
         Bridge?.Dispose();
         CodexServer?.Dispose();
         if (_trayIcon != null)
         {
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
+            _trayIcon = null;
         }
-        _singleInstanceMutex?.Dispose();
+        if (_singleInstanceMutex != null)
+        {
+            try { _singleInstanceMutex.ReleaseMutex(); } catch { }
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+        }
+        Updater?.Dispose();
+    }
+
+    private void ExitApplication()
+    {
+        if (_isShuttingDown) return;
+        _isShuttingDown = true;
+        AppLog.Info("==== Open Island shutting down ====");
+        TearDownResources();
         Shutdown();
     }
 }
