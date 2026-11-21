@@ -31,6 +31,7 @@ public sealed class TranscriptDiscovery
         var recentCodexThreadIds = ScanCodexThreadDatabase(cutoff, results);
         ScanCodexRollouts(cutoff, results, recentCodexThreadIds);
         ScanDeepSeekHarnessSessions(cutoff, results);
+        ScanAntigravitySessions(cutoff, results);
 
         return results;
     }
@@ -552,6 +553,270 @@ public sealed class TranscriptDiscovery
         }
     }
 
+    // ------------------------------------------------------------------
+    // Google Antigravity (Desktop 2.0 / IDE / CLI) local transcripts.
+    // Documented path: ~/.gemini/antigravity*/brain/<uuid>/.system_generated/logs/transcript.jsonl
+    // ------------------------------------------------------------------
+    private static readonly (string RelativeBrainDir, string SurfaceName, bool IsDesktop)[] AntigravityRoots =
+    [
+        ("~/.gemini/antigravity/brain",     "Antigravity",     true),
+        ("~/.gemini/antigravity-ide/brain", "Antigravity IDE", true),
+        ("~/.gemini/antigravity-cli/brain", "Antigravity CLI", false)
+    ];
+
+    private void ScanAntigravitySessions(DateTime cutoffUtc, List<AgentSession> results)
+    {
+        foreach (var (relBrainDir, surfaceName, isDesktop) in AntigravityRoots)
+        {
+            var brainRoot = AgentRegistry.ExpandHomePath(relBrainDir);
+            if (!Directory.Exists(brainRoot)) continue;
+
+            try
+            {
+                foreach (var convDir in Directory.EnumerateDirectories(brainRoot))
+                {
+                    var transcriptPath = Path.Combine(convDir, ".system_generated", "logs", "transcript.jsonl");
+                    if (!File.Exists(transcriptPath)) continue;
+
+                    try
+                    {
+                        var info = new FileInfo(transcriptPath);
+                        if (info.LastWriteTimeUtc < cutoffUtc) continue;
+
+                        var sessionId = Path.GetFileName(convDir);
+                        if (string.IsNullOrWhiteSpace(sessionId)) continue;
+
+                        var headLines = ReadHeadLines(transcriptPath, 6);
+                        var tailLines = ReadTailLines(transcriptPath, 50).ToList();
+
+                        bool hasExplicitUserInput = false;
+                        string? firstUserPrompt = null;
+                        string? lastPrompt = null;
+                        string? lastAssistant = null;
+                        string? model = null;
+                        string? activeToolName = null;
+                        string? lastType = null;
+                        string? lastStatus = null;
+                        bool lastHasToolCalls = false;
+                        DateTimeOffset? createdAt = null;
+                        DateTimeOffset? lastActivity = null;
+
+                        void ProcessLine(string line, bool isHead)
+                        {
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(line);
+                                var root = doc.RootElement;
+                                if (root.ValueKind != JsonValueKind.Object) return;
+
+                                var source = root.TryGetProperty("source", out var srcEl) && srcEl.ValueKind == JsonValueKind.String
+                                    ? srcEl.GetString()
+                                    : null;
+                                var type = root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String
+                                    ? typeEl.GetString()
+                                    : null;
+                                var status = root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String
+                                    ? stEl.GetString()
+                                    : null;
+
+                                if (root.TryGetProperty("created_at", out var tsEl) && tsEl.ValueKind == JsonValueKind.String &&
+                                    DateTimeOffset.TryParse(tsEl.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                        out var parsedTs))
+                                {
+                                    if (isHead && createdAt is null) createdAt = parsedTs;
+                                    if (!isHead && (lastActivity is null || parsedTs > lastActivity)) lastActivity = parsedTs;
+                                }
+
+                                if (string.Equals(type, "USER_INPUT", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (string.Equals(source, "USER_EXPLICIT", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        hasExplicitUserInput = true;
+                                        if (root.TryGetProperty("content", out var cEl) && cEl.ValueKind == JsonValueKind.String)
+                                        {
+                                            var extracted = ExtractAntigravityUserPrompt(cEl.GetString());
+                                            if (!string.IsNullOrWhiteSpace(extracted))
+                                            {
+                                                firstUserPrompt ??= extracted;
+                                                if (!isHead) lastPrompt = extracted;
+                                            }
+                                        }
+                                    }
+                                }
+                                else if (!isHead && string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String &&
+                                        !string.IsNullOrWhiteSpace(mEl.GetString()))
+                                    {
+                                        model = mEl.GetString();
+                                    }
+
+                                    if (root.TryGetProperty("content", out var respEl) && respEl.ValueKind == JsonValueKind.String &&
+                                        !string.IsNullOrWhiteSpace(respEl.GetString()))
+                                    {
+                                        lastAssistant = HookPayloadDecoder.Clip(respEl.GetString(), 240);
+                                    }
+
+                                    bool hasTools = false;
+                                    string? toolName = null;
+                                    if (root.TryGetProperty("tool_calls", out var tcEl) && tcEl.ValueKind == JsonValueKind.Array)
+                                    {
+                                        foreach (var tc in tcEl.EnumerateArray())
+                                        {
+                                            hasTools = true;
+                                            if (tc.ValueKind == JsonValueKind.Object &&
+                                                tc.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String)
+                                            {
+                                                toolName = nEl.GetString();
+                                            }
+                                        }
+                                    }
+
+                                    lastHasToolCalls = hasTools;
+                                    activeToolName = hasTools ? toolName : null;
+                                }
+
+                                if (!isHead)
+                                {
+                                    lastType = type;
+                                    lastStatus = status;
+                                    if (!string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        lastHasToolCalls = false;
+                                        if (string.Equals(type, "USER_INPUT", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            activeToolName = null;
+                                        }
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Live transcript line may be partially flushed; ignore malformed lines.
+                            }
+                        }
+
+                        foreach (var line in headLines) ProcessLine(line, isHead: true);
+                        foreach (var line in tailLines) ProcessLine(line, isHead: false);
+
+                        // Skip background subagent/swarm transcripts that never had explicit user input.
+                        if (!hasExplicitUserInput) continue;
+
+                        var updatedAt = lastActivity ?? new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+                        if (info.LastWriteTimeUtc > updatedAt.UtcDateTime)
+                        {
+                            updatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+                        }
+                        if (updatedAt.UtcDateTime < cutoffUtc) continue;
+
+                        var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
+                        SessionPhase phase;
+                        if (string.Equals(lastType, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(lastStatus, "ERROR", StringComparison.OrdinalIgnoreCase))
+                        {
+                            phase = SessionPhase.Error;
+                        }
+                        else if (string.Equals(lastType, "USER_INPUT", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(lastType, "GENERIC", StringComparison.OrdinalIgnoreCase) ||
+                                 (string.Equals(lastType, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase) &&
+                                  (lastHasToolCalls || !string.Equals(lastStatus, "DONE", StringComparison.OrdinalIgnoreCase))))
+                        {
+                            phase = idleSeconds < 120 ? SessionPhase.Running : SessionPhase.Idle;
+                        }
+                        else if (string.Equals(lastType, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase))
+                        {
+                            phase = idleSeconds < 30 ? SessionPhase.Completed : SessionPhase.Idle;
+                        }
+                        else
+                        {
+                            phase = idleSeconds < 25 ? SessionPhase.Running : SessionPhase.Idle;
+                        }
+
+                        var effectivePrompt = lastPrompt ?? firstUserPrompt;
+                        var title = HookPayloadDecoder.Clip(firstUserPrompt ?? effectivePrompt, 90);
+                        var statusSummary = phase == SessionPhase.Running && !string.IsNullOrWhiteSpace(activeToolName)
+                            ? $"Running {activeToolName}"
+                            : !string.IsNullOrWhiteSpace(lastAssistant)
+                                ? HookPayloadDecoder.Clip(lastAssistant, 160)
+                                : !string.IsNullOrWhiteSpace(effectivePrompt)
+                                    ? HookPayloadDecoder.Clip(effectivePrompt, 160)
+                                    : $"{surfaceName} session";
+
+                        results.Add(new AgentSession
+                        {
+                            SessionId = sessionId,
+                            Source = AgentSource.Antigravity,
+                            Title = title,
+                            Model = model,
+                            TranscriptPath = transcriptPath,
+                            ActiveToolName = phase == SessionPhase.Running ? activeToolName : null,
+                            LastPrompt = HookPayloadDecoder.Clip(effectivePrompt, 160),
+                            LastAssistantMessage = lastAssistant,
+                            StatusSummary = statusSummary,
+                            Phase = phase,
+                            UpdatedAt = updatedAt,
+                            CreatedAt = createdAt ?? new DateTimeOffset(info.CreationTimeUtc, TimeSpan.Zero),
+                            Terminal = new TerminalMetadata
+                            {
+                                IsDesktopApp = isDesktop,
+                                DesktopAppName = isDesktop ? surfaceName : null,
+                                TerminalApp = surfaceName
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        // Ignore unreadable conversation directories.
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Antigravity session scan failed ({brainRoot}): {ex.Message}");
+            }
+        }
+    }
+
+    internal static string ExtractAntigravityUserPrompt(string? rawContent)
+    {
+        if (string.IsNullOrWhiteSpace(rawContent)) return "";
+
+        var startTag = "<USER_REQUEST>";
+        var endTag = "</USER_REQUEST>";
+        var startIdx = rawContent.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+        if (startIdx >= 0)
+        {
+            var bodyStart = startIdx + startTag.Length;
+            var endIdx = rawContent.IndexOf(endTag, bodyStart, StringComparison.OrdinalIgnoreCase);
+            var extracted = endIdx >= 0 ? rawContent[bodyStart..endIdx] : rawContent[bodyStart..];
+            return HookPayloadDecoder.Clip(extracted, 160);
+        }
+
+        // Strip trailing <ADDITIONAL_METADATA> / <USER_SETTINGS_CHANGE> blocks if present without wrapper.
+        var metaIdx = rawContent.IndexOf("<ADDITIONAL_METADATA>", StringComparison.OrdinalIgnoreCase);
+        var cleaned = metaIdx > 0 ? rawContent[..metaIdx] : rawContent;
+        return HookPayloadDecoder.Clip(cleaned, 160);
+    }
+
+    private static List<string> ReadHeadLines(string path, int maxLines)
+    {
+        var list = new List<string>(maxLines);
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
+            while (list.Count < maxLines)
+            {
+                var line = reader.ReadLine();
+                if (line is null) break;
+                if (!string.IsNullOrWhiteSpace(line)) list.Add(line);
+            }
+        }
+        catch { }
+        return list;
+    }
+
     private static JsonElement? GetRowValue(JsonElement rows, string rowName)
     {
         if (rows.TryGetProperty(rowName, out var row) &&
@@ -757,7 +1022,140 @@ public sealed class TranscriptDiscovery
         }
         list.Add(codexUsage);
 
+        // 3. Google Antigravity local transcript token aggregation (5h & 7d windows)
+        list.Add(ReadAntigravityUsage());
+
         return list;
+    }
+
+    private static UsageWindowInfo ReadAntigravityUsage()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var fiveHourCutoff = nowUtc.AddHours(-5);
+        var sevenDayCutoff = nowUtc.AddDays(-7);
+
+        var usage = new UsageWindowInfo
+        {
+            AgentName = "Google Antigravity",
+            IsTokenMetricMode = true,
+            OfficialQuotaHint = Localization.Strings.Get("UsageAntigravityHint")
+        };
+
+        var perModel = new Dictionary<string, ModelUsageBreakdown>(StringComparer.OrdinalIgnoreCase);
+        DateTimeOffset? latestActivity = null;
+
+        foreach (var (relBrainDir, _, _) in AntigravityRoots)
+        {
+            var brainRoot = AgentRegistry.ExpandHomePath(relBrainDir);
+            if (!Directory.Exists(brainRoot)) continue;
+
+            try
+            {
+                foreach (var convDir in Directory.EnumerateDirectories(brainRoot))
+                {
+                    var transcriptPath = Path.Combine(convDir, ".system_generated", "logs", "transcript.jsonl");
+                    if (!File.Exists(transcriptPath)) continue;
+
+                    try
+                    {
+                        var info = new FileInfo(transcriptPath);
+                        if (info.LastWriteTimeUtc < sevenDayCutoff.UtcDateTime) continue;
+
+                        using var fs = new FileStream(transcriptPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var reader = new StreamReader(fs);
+                        string? line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            // Fast pre-filter before JSON parsing: only PLANNER_RESPONSE carries model token stats.
+                            if (!line.Contains("\"PLANNER_RESPONSE\"", StringComparison.Ordinal)) continue;
+                            if (!line.Contains("_tokens\"", StringComparison.Ordinal)) continue;
+
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(line);
+                                var root = doc.RootElement;
+                                if (root.ValueKind != JsonValueKind.Object) continue;
+
+                                if (!root.TryGetProperty("created_at", out var tsEl) || tsEl.ValueKind != JsonValueKind.String)
+                                    continue;
+                                if (!DateTimeOffset.TryParse(tsEl.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                        out var ts))
+                                    continue;
+
+                                if (ts < sevenDayCutoff) continue;
+
+                                long input = TryGetInt64(root, "input_tokens");
+                                long cache = TryGetInt64(root, "cache_read_tokens");
+                                long output = TryGetInt64(root, "output_tokens");
+                                long total = input + cache + output;
+                                if (total <= 0) continue;
+
+                                usage.SevenDayTokens.InputTokens += input;
+                                usage.SevenDayTokens.CacheReadTokens += cache;
+                                usage.SevenDayTokens.OutputTokens += output;
+                                usage.SevenDayTokens.RequestCount++;
+
+                                bool inFiveHour = ts >= fiveHourCutoff;
+                                if (inFiveHour)
+                                {
+                                    usage.FiveHourTokens.InputTokens += input;
+                                    usage.FiveHourTokens.CacheReadTokens += cache;
+                                    usage.FiveHourTokens.OutputTokens += output;
+                                    usage.FiveHourTokens.RequestCount++;
+                                }
+
+                                var modelName = root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String
+                                    ? mEl.GetString()
+                                    : null;
+                                if (!string.IsNullOrWhiteSpace(modelName))
+                                {
+                                    if (!perModel.TryGetValue(modelName, out var breakdown))
+                                    {
+                                        breakdown = new ModelUsageBreakdown { Model = modelName };
+                                        perModel[modelName] = breakdown;
+                                    }
+                                    breakdown.SevenDayTokens += total;
+                                    if (inFiveHour) breakdown.FiveHourTokens += total;
+                                    breakdown.RequestCount++;
+                                }
+
+                                if (latestActivity is null || ts > latestActivity)
+                                {
+                                    latestActivity = ts;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Antigravity usage scan failed ({brainRoot}): {ex.Message}");
+            }
+        }
+
+        if (latestActivity.HasValue && usage.SevenDayTokens.RequestCount > 0)
+        {
+            usage.LastUpdated = latestActivity.Value.ToLocalTime();
+            usage.TopModels = perModel.Values
+                .OrderByDescending(m => m.SevenDayTokens)
+                .Take(4)
+                .ToList();
+        }
+
+        return usage;
+    }
+
+    private static long TryGetInt64(JsonElement obj, string propertyName)
+    {
+        if (obj.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.Number && prop.TryGetInt64(out var val))
+        {
+            return Math.Max(0, val);
+        }
+        return 0;
     }
 
     private static bool TryFindRateLimits(JsonElement el, out JsonElement found)

@@ -78,6 +78,7 @@ public partial class SettingsWindow : Window
         UpdateAboutUpdateCard();
 
         _app.UpdateCheckCompleted += OnUpdateCheckCompleted;
+        _app.AgentInstallStateChanged += OnAgentInstallStateChanged;
 
         MonitorCombo.SelectionChanged += (_, _) =>
         {
@@ -258,6 +259,7 @@ public partial class SettingsWindow : Window
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         _app.UpdateCheckCompleted -= OnUpdateCheckCompleted;
+        _app.AgentInstallStateChanged -= OnAgentInstallStateChanged;
         _connectionTimer.Stop();
         _saveToastTimer.Stop();
         _agentsFeedbackTimer.Stop();
@@ -412,6 +414,8 @@ public partial class SettingsWindow : Window
 
         // Agents -----------------------------------------------------
         AgentSummaryHint.Text = Strings.Get("AgentSummaryHint");
+        ScanConnectAgentsText.Text = Strings.Get("ScanAndConnectAgents");
+        ScanConnectAgentsButton.ToolTip = Strings.Get("ScanAndConnectAgents");
         RefreshAgentsText.Text = Strings.Get("RefreshAgents");
         InstallClaudeStatuslineText.Text = Strings.Get("InstallClaudeStatusline");
         RestartAgentHintText.Text = Strings.Get("RestartAgentHint");
@@ -449,6 +453,8 @@ public partial class SettingsWindow : Window
         StartupHintText.Text = Strings.Get("StartupHint");
         AutoCheckUpdatesLabel.Text = Strings.Get("AutoCheckUpdates");
         AutoCheckUpdatesHintText.Text = Strings.Get("AutoCheckUpdatesHint");
+        AutoDetectAgentsLabel.Text = Strings.Get("AutoDetectAgentsLabel");
+        AutoDetectAgentsHintText.Text = Strings.Get("AutoDetectAgentsHint");
         NotificationTitle.Text = Strings.Get("NotificationSection");
         SoundLabel.Text = Strings.Get("EnableSound");
         SoundHintText.Text = Strings.Get("SoundHint");
@@ -537,6 +543,7 @@ public partial class SettingsWindow : Window
 
         StartupToggle.IsChecked = s.LaunchAtStartup;
         AutoCheckUpdatesToggle.IsChecked = s.AutoCheckForUpdates;
+        AutoDetectAgentsToggle.IsChecked = s.AutoDetectAgentsOnStartup;
         SoundToggle.IsChecked = s.SoundEnabled;
         AutoExpandApprovalToggle.IsChecked = s.AutoExpandOnApproval;
         AutoExpandCompleteToggle.IsChecked = s.AutoExpandOnCompletion;
@@ -636,7 +643,11 @@ public partial class SettingsWindow : Window
             PollIntervalMs = (int)Math.Round(PollSlider.Value),
             CompletionCardSeconds = (int)Math.Round(CompletionDurationSlider.Value),
             ToggleHotkey = previous.ToggleHotkey,
-            AutoInstallOpenCodePlugin = previous.AutoInstallOpenCodePlugin
+            AutoInstallOpenCodePlugin = previous.AutoInstallOpenCodePlugin,
+            AutoDetectAgentsOnStartup = AutoDetectAgentsToggle.IsChecked == true,
+            DismissedAutoConnectAgents = previous.DismissedAutoConnectAgents is null
+                ? new List<string>()
+                : new List<string>(previous.DismissedAutoConnectAgents)
         };
 
         string? applyError = null;
@@ -846,6 +857,25 @@ public partial class SettingsWindow : Window
 
     private void RefreshAgentsButton_Click(object sender, RoutedEventArgs e) => RefreshAgentRows();
 
+    private void ScanConnectAgentsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_app.PromptConnectDetectedAgents(includeDismissed: true))
+        {
+            ShowAgentsFeedback(Strings.Get("NoNewAgentsDetected"), ok: true);
+        }
+    }
+
+    private void OnAgentInstallStateChanged()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(OnAgentInstallStateChanged);
+            return;
+        }
+        RefreshAgentRows();
+        UpdateConnectionPage();
+    }
+
     private void InstallClaudeStatuslineButton_Click(object sender, RoutedEventArgs e) =>
         RunAgentAction(() => _app.SetupManager.InstallClaudeStatusLine());
 
@@ -864,6 +894,13 @@ public partial class SettingsWindow : Window
             ShowAgentsFeedback(ex.Message, ok: false);
             return;
         }
+
+        // Surface installed, partial, and locally detected agents at the top of the list.
+        statuses = statuses
+            .OrderBy(s => s.Status == HookInstallStatus.Installed ? 0
+                : s.Status == HookInstallStatus.Partial ? 1
+                : s.IsDetectedOnMachine ? 2 : 3)
+            .ToList();
 
         var installed = statuses.Count(s => s.Status == HookInstallStatus.Installed);
         AgentSummaryText.Text = string.Format(Strings.Get("AgentSummary"), installed, statuses.Count);
@@ -955,6 +992,29 @@ public partial class SettingsWindow : Window
         });
         chip.Child = chipStack;
         headerRow.Children.Add(chip);
+
+        if (status.IsDetectedOnMachine && status.Status == HookInstallStatus.NotInstalled)
+        {
+            var detectedChip = new Border
+            {
+                Style = (Style)FindResource("StatusChip"),
+                Background = AlphaBrush(AccentColor, 20),
+                BorderBrush = AlphaBrush(AccentColor, 66),
+                Margin = new Thickness(6, 0, 0, 0),
+                Padding = new Thickness(6, 1, 6, 1),
+                ToolTip = status.DetectionSource
+            };
+            detectedChip.Child = new TextBlock
+            {
+                Text = Strings.Get("DetectedOnPc"),
+                FontSize = 10,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(AccentColor),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            headerRow.Children.Add(detectedChip);
+        }
+
         textStack.Children.Add(headerRow);
 
         var path = new TextBlock
@@ -1102,18 +1162,21 @@ public partial class SettingsWindow : Window
         var hasAnyData = usages.Any(u => u.LastUpdated.HasValue);
         UsageHintBanner.Visibility = hasAnyData ? Visibility.Collapsed : Visibility.Visible;
 
-        foreach (var usage in usages)
+        foreach (var usage in usages.OrderByDescending(u => u.LastUpdated.HasValue))
             UsageCardsHost.Children.Add(BuildUsageCard(usage));
     }
 
     private FrameworkElement BuildUsageCard(UsageWindowInfo usage)
     {
         var hasData = usage.LastUpdated.HasValue;
+        var isAntigravity = usage.AgentName.Contains("Antigravity", StringComparison.OrdinalIgnoreCase);
         var accent = usage.AgentName.Contains("Claude", StringComparison.OrdinalIgnoreCase)
             ? ColorFromHex(AgentRegistry.Get(AgentSource.Claude).AccentHex)
             : usage.AgentName.Contains("Codex", StringComparison.OrdinalIgnoreCase)
                 ? ColorFromHex(AgentRegistry.Get(AgentSource.Codex).AccentHex)
-                : AccentColor;
+                : isAntigravity
+                    ? ColorFromHex(AgentRegistry.Get(AgentSource.Antigravity).AccentHex)
+                    : AccentColor;
 
         var card = new Border
         {
@@ -1138,9 +1201,13 @@ public partial class SettingsWindow : Window
             BorderThickness = new Thickness(1),
             Margin = new Thickness(0, 0, 11, 0)
         };
+        var monogram = usage.AgentName.Contains("Claude", StringComparison.OrdinalIgnoreCase) ? "C"
+            : usage.AgentName.Contains("Codex", StringComparison.OrdinalIgnoreCase) ? "X"
+            : isAntigravity ? "A"
+            : "U";
         iconTile.Child = new TextBlock
         {
-            Text = usage.AgentName.Contains("Claude", StringComparison.OrdinalIgnoreCase) ? "C" : "X",
+            Text = monogram,
             FontFamily = (FontFamily)FindResource("FontDisplay"),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
@@ -1158,7 +1225,7 @@ public partial class SettingsWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         });
 
-        var chipColor = hasData ? GreenColor : TertiaryColor;
+        var chipColor = hasData ? (usage.IsTokenMetricMode ? accent : GreenColor) : TertiaryColor;
         var chip = new Border
         {
             Style = (Style)FindResource("StatusChip"),
@@ -1169,7 +1236,7 @@ public partial class SettingsWindow : Window
         };
         chip.Child = new TextBlock
         {
-            Text = Strings.Get(hasData ? "UsageSynced" : "UsageWaiting"),
+            Text = Strings.Get(hasData ? (usage.IsTokenMetricMode ? "UsageLocalTokenStats" : "UsageSynced") : "UsageWaiting"),
             FontSize = 10,
             FontWeight = FontWeights.SemiBold,
             Foreground = new SolidColorBrush(chipColor)
@@ -1190,6 +1257,13 @@ public partial class SettingsWindow : Window
         Grid.SetColumn(updated, 1);
         header.Children.Add(updated);
         stack.Children.Add(header);
+
+        if (usage.IsTokenMetricMode)
+        {
+            stack.Children.Add(BuildTokenUsageBody(usage, hasData, accent));
+            card.Child = stack;
+            return card;
+        }
 
         var body = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         body.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1265,6 +1339,152 @@ public partial class SettingsWindow : Window
         stack.Children.Add(body);
         card.Child = stack;
         return card;
+    }
+
+    private FrameworkElement BuildTokenUsageBody(UsageWindowInfo usage, bool hasData, Color accent)
+    {
+        var outer = new StackPanel { Margin = new Thickness(0, 14, 0, 0) };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var fiveTile = BuildTokenWindowTile(Strings.Get("FiveHourShort"), usage.FiveHourTokens, hasData, accent);
+        fiveTile.Margin = new Thickness(0, 0, 8, 0);
+        Grid.SetColumn(fiveTile, 0);
+        grid.Children.Add(fiveTile);
+
+        var sevenTile = BuildTokenWindowTile(Strings.Get("SevenDayShort"), usage.SevenDayTokens, hasData, accent);
+        sevenTile.Margin = new Thickness(8, 0, 0, 0);
+        Grid.SetColumn(sevenTile, 1);
+        grid.Children.Add(sevenTile);
+
+        outer.Children.Add(grid);
+
+        if (hasData && usage.TopModels.Count > 0)
+        {
+            var modelsPanel = new StackPanel { Margin = new Thickness(0, 11, 0, 0) };
+            modelsPanel.Children.Add(new TextBlock
+            {
+                Text = Strings.Get("UsageTopModelsLabel"),
+                FontSize = 10,
+                Foreground = new SolidColorBrush(TertiaryColor),
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+
+            var wrap = new WrapPanel();
+            foreach (var m in usage.TopModels)
+            {
+                var pill = new Border
+                {
+                    Style = (Style)FindResource("StatusChip"),
+                    Background = new SolidColorBrush(ColorFromHex("#0F1218")),
+                    BorderBrush = new SolidColorBrush(ColorFromHex("#242A36")),
+                    Margin = new Thickness(0, 0, 6, 5),
+                    Padding = new Thickness(8, 3, 8, 3)
+                };
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new TextBlock
+                {
+                    Text = m.Model,
+                    FontFamily = (FontFamily)FindResource("FontMono"),
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(ColorFromHex("#C5CEDE"))
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = $" · {FormatTokenCount(m.SevenDayTokens)}",
+                    FontFamily = (FontFamily)FindResource("FontMono"),
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(accent)
+                });
+                pill.Child = row;
+                wrap.Children.Add(pill);
+            }
+            modelsPanel.Children.Add(wrap);
+            outer.Children.Add(modelsPanel);
+        }
+
+        outer.Children.Add(new TextBlock
+        {
+            Text = hasData
+                ? (usage.OfficialQuotaHint ?? Strings.Get("UsageAntigravityHint"))
+                : Strings.Get("UsageAntigravityNoData"),
+            FontSize = 10.5,
+            Foreground = new SolidColorBrush(ColorFromHex("#8996A9")),
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 16,
+            Margin = new Thickness(0, 10, 0, 0)
+        });
+
+        return outer;
+    }
+
+    private FrameworkElement BuildTokenWindowTile(string label, UsageTokenWindow window, bool hasData, Color accent)
+    {
+        var tile = new Border
+        {
+            Style = (Style)FindResource("InnerTile"),
+            Padding = new Thickness(13, 11, 13, 11)
+        };
+        var stack = new StackPanel();
+
+        var topRow = new Grid();
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        topRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        topRow.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 11,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(ColorFromHex("#A6B0C0")),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        var reqText = new TextBlock
+        {
+            Text = hasData ? Strings.Get("UsageRequestsFormat", window.RequestCount) : "—",
+            FontSize = 10,
+            Foreground = new SolidColorBrush(TertiaryColor),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(reqText, 1);
+        topRow.Children.Add(reqText);
+        stack.Children.Add(topRow);
+
+        stack.Children.Add(new TextBlock
+        {
+            Text = hasData ? FormatTokenCount(window.TotalTokens) : "—",
+            FontFamily = (FontFamily)FindResource("FontDisplay"),
+            FontSize = 22,
+            FontWeight = FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(hasData ? ColorFromHex("#F2F4F8") : TertiaryColor),
+            Margin = new Thickness(0, 4, 0, 5)
+        });
+
+        var breakdown = hasData
+            ? $"{Strings.Get("UsageInputLabel")} {FormatTokenCount(window.InputTokens)}  ·  {Strings.Get("UsageCacheLabel")} {FormatTokenCount(window.CacheReadTokens)}  ·  {Strings.Get("UsageOutputLabel")} {FormatTokenCount(window.OutputTokens)}"
+            : $"{Strings.Get("UsageInputLabel")} —  ·  {Strings.Get("UsageCacheLabel")} —  ·  {Strings.Get("UsageOutputLabel")} —";
+        stack.Children.Add(new TextBlock
+        {
+            Text = breakdown,
+            FontFamily = (FontFamily)FindResource("FontMono"),
+            FontSize = 9.5,
+            Foreground = new SolidColorBrush(hasData ? ColorFromHex("#8D9BB0") : TertiaryColor),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            ToolTip = breakdown
+        });
+
+        tile.Child = stack;
+        return tile;
+    }
+
+    private static string FormatTokenCount(long tokens)
+    {
+        if (tokens >= 1_000_000_000) return $"{tokens / 1_000_000_000.0:0.##}B";
+        if (tokens >= 1_000_000) return $"{tokens / 1_000_000.0:0.##}M";
+        if (tokens >= 1_000) return $"{tokens / 1_000.0:0.#}K";
+        return tokens.ToString(CultureInfo.InvariantCulture);
     }
 
     private FrameworkElement BuildUsageRing(string label, double percent, bool hasData, string? resetText)

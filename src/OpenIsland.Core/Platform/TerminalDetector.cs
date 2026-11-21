@@ -154,15 +154,17 @@ public static class TerminalDetector
                     "chatgpt.exe" => "Codex Desktop",
                     "codex.exe" => "Codex Desktop",
                     "zcode.exe" => "ZCode Desktop",
+                    "antigravity.exe" or "antigravity-desktop.exe" => "Antigravity",
+                    "antigravity-ide.exe" => "Antigravity IDE",
                     "conhost.exe" or "powershell.exe" or "pwsh.exe" or "cmd.exe" => null,
-                    _ => null
+                    _ => exe.Contains("antigravity", StringComparison.Ordinal) ? "Antigravity" : null
                 };
 
                 if (matchedApp != null)
                 {
                     meta.TerminalApp ??= matchedApp;
                     meta.HostProcessId ??= item.Pid;
-                    if (matchedApp is "Claude Desktop" or "Codex Desktop" or "ZCode Desktop")
+                    if (matchedApp is "Claude Desktop" or "Codex Desktop" or "ZCode Desktop" or "Antigravity" or "Antigravity IDE")
                     {
                         meta.IsDesktopApp = true;
                         meta.DesktopAppName ??= matchedApp;

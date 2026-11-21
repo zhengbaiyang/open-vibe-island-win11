@@ -81,24 +81,63 @@ public static class HookPayloadDecoder
             evt.EventName = GetString(root, "hook_event_name", "hookEventName", "event", "type") ?? "";
             evt.Cwd = GetString(root, "cwd", "workspace", "working_directory") ?? evt.Cwd;
             evt.TranscriptPath = GetString(root, "transcript_path", "transcriptPath");
-            evt.SessionId = GetString(root, "session_id", "sessionId", "conversation_id", "thread_id", "threadId")
+            evt.SessionId = GetString(root, "session_id", "sessionId", "conversation_id", "conversationId", "thread_id", "threadId")
                             ?? GenerateFallbackSessionId(source, envelope, evt.TranscriptPath, evt.Cwd);
-            evt.Model = GetString(root, "model");
+            evt.Model = GetString(root, "model", "modelName");
             evt.PermissionMode = GetString(root, "permission_mode", "permissionMode");
-            evt.Prompt = GetString(root, "prompt", "user_prompt", "userPrompt");
+            evt.Prompt = GetString(root, "prompt", "user_prompt", "userPrompt", "lastUserInput");
             evt.LastAssistantMessage = GetString(root, "last_assistant_message", "lastAssistantMessage", "prompt_response", "assistant_response", "response");
             evt.ToolName = GetString(root, "tool_name", "toolName", "tool");
             evt.ToolUseId = GetString(root, "tool_use_id", "toolUseId", "tool_call_id");
             evt.NotificationType = GetString(root, "notification_type", "notificationType");
             evt.Message = GetString(root, "message");
             evt.Title = GetString(root, "title");
-            evt.Reason = GetString(root, "reason");
+            evt.Reason = GetString(root, "reason", "terminationReason");
             evt.Error = GetString(root, "error", "error_details");
             evt.IsInterrupt = GetBool(root, "is_interrupt", "isInterrupt");
             evt.AgentId = GetString(root, "agent_id", "agentId");
             evt.AgentType = GetString(root, "agent_type", "agentType");
             evt.TurnId = GetString(root, "turn_id", "turnId");
             evt.ThreadId = GetString(root, "thread_id", "threadId");
+
+            // Antigravity hook payload specifics (camelCase protojson: workspacePaths, toolCall, terminationReason)
+            if (source == AgentSource.Antigravity)
+            {
+                if (string.IsNullOrWhiteSpace(evt.Cwd)
+                    && root.TryGetProperty("workspacePaths", out var wp)
+                    && wp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in wp.EnumerateArray())
+                    {
+                        if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        {
+                            evt.Cwd = item.GetString();
+                            break;
+                        }
+                    }
+                }
+
+                if (root.TryGetProperty("toolCall", out var toolCall) && toolCall.ValueKind == JsonValueKind.Object)
+                {
+                    evt.ToolUseId ??= GetString(toolCall, "id");
+                    evt.ToolName ??= GetString(toolCall, "name");
+                    if (toolCall.TryGetProperty("args", out var tcArgs))
+                    {
+                        evt.ToolInputPreview ??= ExtractToolPreview(tcArgs);
+                        ExtractQuestions(tcArgs, evt.Questions);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(evt.Reason) &&
+                    string.Equals(evt.Reason, "USER_CANCELED", StringComparison.OrdinalIgnoreCase))
+                {
+                    evt.IsInterrupt = true;
+                }
+
+                evt.Terminal.IsDesktopApp = true;
+                evt.Terminal.DesktopAppName ??= "Antigravity";
+                evt.Terminal.TerminalApp ??= "Antigravity";
+            }
 
             // Terminal metadata inside payload takes precedence if present
             evt.Terminal.TerminalApp ??= GetString(root, "terminal_app", "terminalApp");
@@ -167,14 +206,33 @@ public static class HookPayloadDecoder
             evt.SessionId = GenerateFallbackSessionId(source, envelope, null, evt.Cwd);
         }
 
-        evt.EventName = NormalizeEventName(source, evt.EventName);
+        evt.EventName = NormalizeEventName(source, evt.EventName, evt.Reason, evt.Error);
         return evt;
     }
 
-    private static string NormalizeEventName(AgentSource source, string raw)
+    private static string NormalizeEventName(AgentSource source, string raw, string? reason = null, string? error = null)
     {
         if (string.IsNullOrWhiteSpace(raw)) return "Heartbeat";
         var key = raw.Trim().ToLowerInvariant().Replace("_", "").Replace("-", "");
+
+        // Google Antigravity lifecycle hook event names (hooks.json)
+        if (source == AgentSource.Antigravity)
+        {
+            return key switch
+            {
+                "sessionstart" => "SessionStart",
+                "preinvocation" => "UserPromptSubmit",
+                "postinvocation" => "Heartbeat",
+                "pretooluse" => "PreToolUse",
+                "posttooluse" => !string.IsNullOrWhiteSpace(error) ? "PostToolUseFailure" : "PostToolUse",
+                "stop" => !string.IsNullOrWhiteSpace(error) || string.Equals(reason, "ERROR", StringComparison.OrdinalIgnoreCase)
+                    ? "StopFailure"
+                    : string.Equals(reason, "USER_CANCELED", StringComparison.OrdinalIgnoreCase)
+                        ? "StopCancelled"
+                        : "Stop",
+                _ => raw
+            };
+        }
 
         // Cursor-specific hook event names
         if (source == AgentSource.Cursor)
@@ -266,10 +324,10 @@ public static class HookPayloadDecoder
         if (el.ValueKind == JsonValueKind.String) return Clip(el.GetString(), 240);
         if (el.ValueKind == JsonValueKind.Object)
         {
-            var cmd = GetString(el, "command", "cmd", "script");
+            var cmd = GetString(el, "command", "cmd", "script", "CommandLine");
             if (!string.IsNullOrWhiteSpace(cmd)) return Clip(cmd, 240);
-            var desc = GetString(el, "description");
-            var path = GetString(el, "file_path", "filePath", "path", "target_file");
+            var desc = GetString(el, "description", "toolSummary");
+            var path = GetString(el, "file_path", "filePath", "path", "Path", "target_file");
             if (!string.IsNullOrWhiteSpace(path))
                 return string.IsNullOrWhiteSpace(desc) ? Clip(path, 240) : Clip($"{path} — {desc}", 240);
             if (!string.IsNullOrWhiteSpace(desc)) return Clip(desc, 240);

@@ -16,7 +16,9 @@ public sealed record AgentInstallState(
     AgentMetadata Agent,
     HookInstallStatus Status,
     string ConfigPath,
-    string Detail);
+    string Detail,
+    bool IsDetectedOnMachine = false,
+    string? DetectionSource = null);
 
 /// <summary>
 /// Manages managed hook & extension installation, status checks, and clean uninstallation
@@ -67,6 +69,12 @@ public sealed class HookInstallManager
         ("PermissionRequest", 3600),
         ("Stop", 45)
     ];
+
+    // ---- Google Antigravity hooks (~/.gemini/config/hooks.json) ----------------------
+    private const string AntigravityManagedHookName = "open-island";
+    private static string AntigravityHooksFile => AgentRegistry.ExpandHomePath("~/.gemini/config/hooks.json");
+    private static readonly string[] AntigravityFlatEvents = ["SessionStart", "PreInvocation", "PostInvocation", "Stop"];
+    private static readonly string[] AntigravityGroupedEvents = ["PostToolUse"];
 
     private static bool HasLegacyCodexHooksBlock()
     {
@@ -221,7 +229,187 @@ public sealed class HookInstallManager
     public List<AgentInstallState> GetAllStatuses() =>
         AgentRegistry.All.Select(GetStatus).ToList();
 
+    /// <summary>
+    /// Returns all hookable agents detected on this machine that are not yet fully connected,
+    /// excluding any CliKeys present in <paramref name="dismissedCliKeys"/>.
+    /// </summary>
+    public List<AgentInstallState> GetDetectedUnconnectedAgents(IEnumerable<string>? dismissedCliKeys = null)
+    {
+        var dismissed = dismissedCliKeys is null
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(dismissedCliKeys.Where(k => !string.IsNullOrWhiteSpace(k)), StringComparer.OrdinalIgnoreCase);
+
+        return GetAllStatuses()
+            .Where(s => !s.Agent.IsAutoDetected
+                        && s.IsDetectedOnMachine
+                        && s.Status != HookInstallStatus.Installed
+                        && !dismissed.Contains(s.Agent.CliKey))
+            .ToList();
+    }
+
+    /// <summary>Detects whether an agent appears to be installed or configured on this machine.</summary>
+    public (bool Detected, string? Source) DetectAgentOnMachine(AgentMetadata agent)
+    {
+        var fakeHomeActive = !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("OPEN_ISLAND_FAKE_HOME"));
+
+        static (bool, string?) CheckDirs(params string[] templates)
+        {
+            foreach (var tpl in templates)
+            {
+                var path = AgentRegistry.ExpandHomePath(tpl);
+                if (Directory.Exists(path)) return (true, path);
+            }
+            return (false, null);
+        }
+
+        static (bool, string?) CheckFiles(params string[] templates)
+        {
+            foreach (var tpl in templates)
+            {
+                var path = AgentRegistry.ExpandHomePath(tpl);
+                if (File.Exists(path)) return (true, path);
+            }
+            return (false, null);
+        }
+
+        static (bool, string?) CheckPathExecutables(bool skipHost, params string[] names)
+        {
+            if (skipHost) return (false, null);
+            var envPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+            foreach (var dir in envPath.Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = dir.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed)) continue;
+                foreach (var name in names)
+                {
+                    try
+                    {
+                        var candidate = Path.Combine(trimmed, name);
+                        if (File.Exists(candidate)) return (true, candidate);
+                    }
+                    catch { }
+                }
+            }
+            return (false, null);
+        }
+
+        static (bool, string?) CheckLocalAppPaths(bool skipHost, params string[] relativePaths)
+        {
+            if (skipHost) return (false, null);
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData)) return (false, null);
+            foreach (var rel in relativePaths)
+            {
+                var full = Path.Combine(localAppData, rel);
+                if (Directory.Exists(full) || File.Exists(full)) return (true, full);
+            }
+            return (false, null);
+        }
+
+        (bool ok, string? src) result = agent.Source switch
+        {
+            AgentSource.Antigravity => FirstDetected(
+                () => CheckDirs("~/.gemini/antigravity", "~/.gemini/antigravity-ide", "~/.gemini/antigravity-cli"),
+                () => CheckLocalAppPaths(fakeHomeActive, @"Programs\Antigravity", @"Programs\Antigravity IDE"),
+                () => CheckPathExecutables(fakeHomeActive, "agy.exe", "agy.cmd", "antigravity.exe")),
+
+            // Do NOT treat bare ~/.gemini as Gemini CLI since Antigravity also stores data under ~/.gemini.
+            AgentSource.Gemini => FirstDetected(
+                () => CheckFiles("~/.gemini/settings.json"),
+                () => CheckPathExecutables(fakeHomeActive, "gemini.exe", "gemini.cmd")),
+
+            AgentSource.Claude => FirstDetected(
+                () => CheckDirs("~/.claude"),
+                () => CheckPathExecutables(fakeHomeActive, "claude.exe", "claude.cmd")),
+
+            AgentSource.Codex => FirstDetected(
+                () => CheckDirs("~/.codex"),
+                () => CheckLocalAppPaths(fakeHomeActive, @"OpenAI\Codex"),
+                () => CheckPathExecutables(fakeHomeActive, "codex.exe", "codex.cmd")),
+
+            AgentSource.OpenCode => FirstDetected(
+                () => CheckDirs("~/.config/opencode"),
+                () => CheckPathExecutables(fakeHomeActive, "opencode.exe", "opencode.cmd")),
+
+            AgentSource.Cursor => FirstDetected(
+                () => CheckDirs("~/.cursor"),
+                () => CheckLocalAppPaths(fakeHomeActive, @"Programs\cursor\Cursor.exe", @"Programs\cursor"),
+                () => CheckPathExecutables(fakeHomeActive, "cursor.exe", "cursor.cmd")),
+
+            AgentSource.Kimi => FirstDetected(
+                () => CheckDirs("~/.kimi"),
+                () => CheckPathExecutables(fakeHomeActive, "kimi.exe", "kimi.cmd")),
+
+            AgentSource.Grok => FirstDetected(
+                () => CheckDirs("~/.grok"),
+                () => CheckPathExecutables(fakeHomeActive, "grok.exe", "grok.cmd")),
+
+            AgentSource.Hermes => FirstDetected(
+                () => CheckDirs("~/.hermes"),
+                () => CheckPathExecutables(fakeHomeActive, "hermes.exe", "hermes.cmd")),
+
+            AgentSource.Pi => FirstDetected(
+                () => CheckDirs("~/.pi"),
+                () => CheckPathExecutables(fakeHomeActive, "pi.exe", "pi.cmd")),
+
+            AgentSource.OhMyPi => FirstDetected(
+                () => CheckDirs("~/.omp"),
+                () => CheckPathExecutables(fakeHomeActive, "omp.exe", "omp.cmd")),
+
+            AgentSource.Qoder => FirstDetected(
+                () => CheckDirs("~/.qoder"),
+                () => CheckPathExecutables(fakeHomeActive, "qoder.exe", "qoder.cmd")),
+
+            AgentSource.Qwen => FirstDetected(
+                () => CheckDirs("~/.qwen"),
+                () => CheckPathExecutables(fakeHomeActive, "qwen.exe", "qwen.cmd")),
+
+            AgentSource.Factory => FirstDetected(
+                () => CheckDirs("~/.factory"),
+                () => CheckPathExecutables(fakeHomeActive, "factory.exe", "factory.cmd")),
+
+            AgentSource.CodeBuddy => FirstDetected(
+                () => CheckDirs("~/.codebuddy"),
+                () => CheckPathExecutables(fakeHomeActive, "codebuddy.exe", "codebuddy.cmd")),
+
+            AgentSource.ZCode => FirstDetected(
+                () => CheckDirs("~/.zcode"),
+                () => CheckPathExecutables(fakeHomeActive, "zcode.exe", "zcode.cmd")),
+
+            AgentSource.DeepSeekHarness => CheckDirs("~/.dsh/storages/session_projcache/sessions", "~/.dsh"),
+
+            _ => (false, null)
+        };
+
+        return result;
+    }
+
+    private static (bool Detected, string? Source) FirstDetected(params Func<(bool Detected, string? Source)>[] probes)
+    {
+        foreach (var probe in probes)
+        {
+            try
+            {
+                var r = probe();
+                if (r.Detected) return r;
+            }
+            catch { }
+        }
+        return (false, null);
+    }
+
     public AgentInstallState GetStatus(AgentMetadata agent)
+    {
+        var (detectedOnMachine, detectionSource) = DetectAgentOnMachine(agent);
+        var state = GetStatusCore(agent);
+        return state with
+        {
+            IsDetectedOnMachine = detectedOnMachine || state.Status != HookInstallStatus.NotInstalled,
+            DetectionSource = detectionSource ?? (state.Status != HookInstallStatus.NotInstalled ? state.ConfigPath : null)
+        };
+    }
+
+    private AgentInstallState GetStatusCore(AgentMetadata agent)
     {
         var configPath = AgentRegistry.ExpandHomePath(agent.ConfigPathTemplate);
 
@@ -235,6 +423,12 @@ public sealed class HookInstallManager
                 detected ? HookInstallStatus.Installed : HookInstallStatus.NotInstalled,
                 configPath,
                 detected ? "自动发现（无需安装 Hook）" : "未检测到本地会话目录");
+        }
+
+        // Google Antigravity: named top-level hook entry ("open-island") in ~/.gemini/config/hooks.json.
+        if (agent.Source == AgentSource.Antigravity)
+        {
+            return GetAntigravityStatus(agent);
         }
 
         // OpenCode is a JS plugin that must be both copied and registered in config.json.
@@ -330,6 +524,7 @@ public sealed class HookInstallManager
 
                 AgentSource.Cursor => InstallCursorJson(configPath, hooksExe),
                 AgentSource.Gemini => InstallGeminiJson(configPath, hooksExe),
+                AgentSource.Antigravity => InstallAntigravityHooks(hooksExe),
                 AgentSource.Kimi => InstallKimiToml(configPath, hooksExe),
                 AgentSource.Grok => InstallGrokJson(configPath, hooksExe),
                 AgentSource.ZCode => InstallZCodeJson(configPath, hooksExe),
@@ -376,6 +571,11 @@ public sealed class HookInstallManager
             if (source == AgentSource.OpenCode)
             {
                 return UninstallOpenCodePlugin();
+            }
+
+            if (source == AgentSource.Antigravity)
+            {
+                return UninstallAntigravityHooks();
             }
 
             if (source == AgentSource.Grok)
@@ -532,6 +732,130 @@ public sealed class HookInstallManager
 
         WriteJsonObject(path, root);
         return (true, $"Installed Gemini CLI hooks into {path}");
+    }
+
+    // ---------------------------------------------------------------------
+    // Google Antigravity hooks — official ~/.gemini/config/hooks.json format
+    // Uses a dedicated top-level named hook ("open-island") and observational
+    // events only (never overrides PreToolUse permission decisions).
+    // ---------------------------------------------------------------------
+    private static AgentInstallState GetAntigravityStatus(AgentMetadata agent)
+    {
+        var path = AntigravityHooksFile;
+        if (!File.Exists(path))
+        {
+            return new AgentInstallState(agent, HookInstallStatus.NotInstalled, path, "未安装（支持本地日志自动发现 + Hook 实时推送）");
+        }
+
+        try
+        {
+            var raw = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(raw) || JsonNode.Parse(raw) is not JsonObject root)
+            {
+                return new AgentInstallState(agent, HookInstallStatus.NotInstalled, path, "No Open Island entry");
+            }
+
+            if (root[AntigravityManagedHookName] is not JsonObject managed)
+            {
+                return new AgentInstallState(agent, HookInstallStatus.NotInstalled, path, "No Open Island entry");
+            }
+
+            var managedJson = managed.ToJsonString();
+            if (!managedJson.Contains(ManagedMarker, StringComparison.OrdinalIgnoreCase))
+            {
+                return new AgentInstallState(agent, HookInstallStatus.Partial, path, "Open Island hook entry is incomplete");
+            }
+
+            bool allEventsPresent = AntigravityFlatEvents.Concat(AntigravityGroupedEvents)
+                .All(ev => managed[ev] is JsonArray arr && arr.Count > 0 &&
+                           arr.ToJsonString().Contains(ManagedMarker, StringComparison.OrdinalIgnoreCase));
+
+            return new AgentInstallState(
+                agent,
+                allEventsPresent ? HookInstallStatus.Installed : HookInstallStatus.Partial,
+                path,
+                allEventsPresent
+                    ? "hooks.json 已注册（观察模式，不干扰原有权限审批）"
+                    : "部分 Antigravity Hook 事件缺失，点击修复以补全");
+        }
+        catch (Exception ex)
+        {
+            return new AgentInstallState(agent, HookInstallStatus.NotInstalled, path, ex.Message);
+        }
+    }
+
+    private static (bool, string) InstallAntigravityHooks(string hooksExe)
+    {
+        var path = AntigravityHooksFile;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var root = LoadOrCreateJsonObject(path);
+        var cmd = $"\"{hooksExe}\" --source antigravity";
+
+        var managed = new JsonObject
+        {
+            ["enabled"] = true
+        };
+
+        foreach (var ev in AntigravityFlatEvents)
+        {
+            managed[ev] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "command",
+                    ["command"] = cmd,
+                    ["timeout"] = 15
+                }
+            };
+        }
+
+        foreach (var ev in AntigravityGroupedEvents)
+        {
+            managed[ev] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["matcher"] = "*",
+                    ["hooks"] = new JsonArray
+                    {
+                        new JsonObject
+                        {
+                            ["type"] = "command",
+                            ["command"] = cmd,
+                            ["timeout"] = 15
+                        }
+                    }
+                }
+            };
+        }
+
+        root[AntigravityManagedHookName] = managed;
+        WriteJsonObject(path, root);
+        return (true, $"已安装 Antigravity hooks 到 {path}");
+    }
+
+    private static (bool, string) UninstallAntigravityHooks()
+    {
+        var path = AntigravityHooksFile;
+        if (!File.Exists(path)) return (true, "Already uninstalled");
+
+        var root = LoadOrCreateJsonObject(path);
+        if (!root.Remove(AntigravityManagedHookName))
+        {
+            return (true, "Already uninstalled");
+        }
+
+        if (root.Count == 0)
+        {
+            EnsureBackup(path);
+            File.Delete(path);
+        }
+        else
+        {
+            WriteJsonObject(path, root);
+        }
+
+        return (true, $"Removed Antigravity Open Island hooks from {path}");
     }
 
     private static (bool, string) InstallCursorJson(string path, string hooksExe)

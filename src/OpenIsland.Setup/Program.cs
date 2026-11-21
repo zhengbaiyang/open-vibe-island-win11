@@ -127,7 +127,8 @@ internal static class Program
 
     private static void PrintStatus(AgentInstallState st)
     {
-        Console.WriteLine($"  {st.Agent.DisplayName,-18} [{st.Status,-12}] {st.ConfigPath} ({st.Detail})");
+        var detectedTag = st.IsDetectedOnMachine && st.Status != HookInstallStatus.Installed ? " [Detected]" : "";
+        Console.WriteLine($"  {st.Agent.DisplayName,-18} [{st.Status,-12}]{detectedTag} {st.ConfigPath} ({st.Detail})");
     }
 
     private static int UnknownAgent(string name)
@@ -141,7 +142,7 @@ internal static class Program
         Console.WriteLine("OpenIslandSetup (Windows 11) — Manage AI coding agent hooks & extensions");
         Console.WriteLine();
         Console.WriteLine("Usage:");
-        Console.WriteLine("  OpenIslandSetup list                      List all 15 supported agents");
+        Console.WriteLine("  OpenIslandSetup list                      List all supported agents");
         Console.WriteLine("  OpenIslandSetup status [agent]            Check hook installation status");
         Console.WriteLine("  OpenIslandSetup install <agent>           Install managed hooks/extension for an agent");
         Console.WriteLine("  OpenIslandSetup uninstall <agent>         Uninstall managed hooks (preserves user hooks)");

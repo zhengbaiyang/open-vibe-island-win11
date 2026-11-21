@@ -407,6 +407,16 @@
                                                    Margin="0,3,0,0"/>
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button x:Name="ScanConnectAgentsButton" Style="{StaticResource AccentButton}"
+                                                Padding="13,6" FontSize="11" Margin="0,0,8,0"
+                                                Click="ScanConnectAgentsButton_Click">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Path Data="{StaticResource IconSparkle}" Width="11" Height="11"
+                                                      Stretch="Uniform" Fill="White" Margin="0,0,6,0"
+                                                      VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="ScanConnectAgentsText" FontSize="11" FontWeight="SemiBold"/>
+                                            </StackPanel>
+                                        </Button>
                                         <Button x:Name="RefreshAgentsButton" Style="{StaticResource GhostButton}"
                                                 Margin="0,0,8,0" Click="RefreshAgentsButton_Click">
                                             <StackPanel Orientation="Horizontal">
@@ -765,6 +775,20 @@
                                                            Margin="0,3,0,0" TextWrapping="Wrap"/>
                                             </StackPanel>
                                             <CheckBox x:Name="AutoCheckUpdatesToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
+                                                      VerticalAlignment="Center"/>
+                                        </Grid>
+                                        <Border Style="{StaticResource Divider}" Margin="0,14,0,0"/>
+                                        <Grid Margin="0,14,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock x:Name="AutoDetectAgentsLabel" Style="{StaticResource FieldLabelText}"/>
+                                                <TextBlock x:Name="AutoDetectAgentsHintText" Style="{StaticResource CaptionText}"
+                                                           Margin="0,3,0,0" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <CheckBox x:Name="AutoDetectAgentsToggle" Grid.Column="1" Style="{StaticResource ToggleSwitch}"
                                                       VerticalAlignment="Center"/>
                                         </Grid>
                                     </StackPanel>

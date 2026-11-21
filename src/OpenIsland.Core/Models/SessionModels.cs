@@ -127,6 +127,25 @@ public sealed class AgentSession
     }
 }
 
+public sealed class UsageTokenWindow
+{
+    public long InputTokens { get; set; }
+    public long CacheReadTokens { get; set; }
+    public long OutputTokens { get; set; }
+    public int RequestCount { get; set; }
+
+    [JsonIgnore]
+    public long TotalTokens => InputTokens + CacheReadTokens + OutputTokens;
+}
+
+public sealed class ModelUsageBreakdown
+{
+    public string Model { get; set; } = "";
+    public long FiveHourTokens { get; set; }
+    public long SevenDayTokens { get; set; }
+    public int RequestCount { get; set; }
+}
+
 public sealed class UsageWindowInfo
 {
     public string AgentName { get; set; } = "";
@@ -136,4 +155,14 @@ public sealed class UsageWindowInfo
     public string? SevenDayResetText { get; set; }
     public DateTimeOffset? LastUpdated { get; set; }
     public string? Note { get; set; }
+
+    /// <summary>
+    /// When true (e.g. Google Antigravity), the platform does not expose server-side
+    /// percentage quota locally; display local 5h/7d token consumption windows instead.
+    /// </summary>
+    public bool IsTokenMetricMode { get; set; }
+    public UsageTokenWindow FiveHourTokens { get; set; } = new();
+    public UsageTokenWindow SevenDayTokens { get; set; } = new();
+    public List<ModelUsageBreakdown> TopModels { get; set; } = new();
+    public string? OfficialQuotaHint { get; set; }
 }

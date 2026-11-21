@@ -48,6 +48,22 @@ public static class TerminalJumper
             return false;
         }
 
+        // Google Antigravity Desktop / IDE: prefer exact HWND, otherwise focus the Antigravity window.
+        if (session.Source == AgentSource.Antigravity)
+        {
+            if (term.WindowHandle is long agyHwnd && agyHwnd != 0)
+            {
+                var hwnd = new IntPtr(agyHwnd);
+                if ((Win32Native.IsWindowVisible(hwnd) || Win32Native.IsIconic(hwnd))
+                    && Win32Native.ForceActivateWindow(hwnd))
+                {
+                    return true;
+                }
+            }
+            if (TryActivateProcessWindow("Antigravity", "Antigravity IDE", "antigravity", "Antigravity-IDE"))
+                return true;
+        }
+
         // 1. Live host window (exact TUI / IDE window).
         if (term.WindowHandle is long rawHwnd && rawHwnd != 0)
         {

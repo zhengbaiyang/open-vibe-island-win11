@@ -62,11 +62,12 @@ Open Island 把所有活跃 Agent 的实时状态收纳进屏幕边缘的一枚�
 
 | 能力 | 说明 |
 | --- | --- |
-| **实时多 Agent 会话** | 原生接入 15+ 主流 AI 编程工具，以及 **DeepSeek Harness（DSH）零配置自动发现**。 |
+| **实时多 Agent 会话** | 原生接入 16+ 主流 AI 编程工具（含 **Google Antigravity 桌面版 / IDE / CLI**），以及 **DeepSeek Harness（DSH）零配置自动发现**。 |
+| **本机 Agent 自动识别与确认接入** | 启动时自动探测本机已安装但尚未接入的 Agent，弹出暗色确认窗口经你勾选同意后再安全写入配置（保留并备份原有配置）。 |
 | **审批 / 提问 / 完成交互** | 待审批或待回答时灵动岛主动滑出并展开，支持直接在岛上响应与自定义 Windows 提示音。 |
-| **一键跳回上下文** | Codex 直达 `codex://threads/<id>` 或 `codex resume`；Claude 支持 `claude --resume`；DSH 自动聚焦窗口。 |
+| **一键跳回上下文** | Codex 直达 `codex://threads/<id>` 或 `codex resume`；Claude 支持 `claude --resume`；Antigravity 与 DSH 自动聚焦桌面窗口。 |
 | **空闲自动隐藏** | 无操作一段时间后轻柔收起到屏幕边缘，鼠标移至边缘即刻滑出；存在待审批/待提问时保持常显。 |
-| **额度与用量监控** | 本地读取 Claude Code 等 5 小时 / 7 天额度窗口与重置时间，无需额外云端授权。 |
+| **本地额度与用量监控** | 本地读取 Claude Code / Codex 5 小时与 7 天额度窗口，以及 **Google Antigravity** 本地 5 小时 / 7 天 Token 用量与模型分布。 |
 | **智能去重与安全 Hooks** | 自动合并 Codex 定时任务与重复会话，避免列表堆积；采用官方 `hooks.json` 规范，不破坏 `config.toml`。 |
 | **应用内自动更新** | 启动自动检查 GitHub Releases 最新正式版，强制校验 `SHA256SUMS.txt`，支持安装版静默覆盖与便携版原地更新。 |
 | **原生外观与系统集成** | 纯黑 / 石墨灰双主题、顶部 / 底部停靠、多显示器切换、中英双语、开机自启与全局显隐快捷键 `Ctrl+Alt+I`。 |
@@ -88,12 +89,12 @@ Open Island 把所有活跃 Agent 的实时状态收纳进屏幕边缘的一枚�
 ## 支持的 Agent
 
 <details open>
-<summary><b>已支持 16 款 AI 编程 Agent（点击展开 / 收起）</b></summary>
+<summary><b>已支持 17 款 AI 编程 Agent（点击展开 / 收起）</b></summary>
 
-- **托管 Hook / 插件接入（可在「设置 → Agent 接入」一键安装与修复）**：
-  `Claude Code` · `Codex` · `OpenCode` · `Cursor` · `Gemini CLI` · `Kimi CLI` · `Grok Build` · `Hermes Agent` · `Pi` · `Oh My Pi (OMP)` · `Qoder` · `Qwen Code` · `Factory` · `CodeBuddy` · `ZCode Desktop`
+- **托管 Hook / 插件接入（启动自动检测并征询确认，或于「设置 → Agent 接入」一键安装与修复）**：
+  `Claude Code` · `Codex` · `Google Antigravity (Desktop / IDE / CLI)` · `OpenCode` · `Cursor` · `Gemini CLI` · `Kimi CLI` · `Grok Build` · `Hermes Agent` · `Pi` · `Oh My Pi (OMP)` · `Qoder` · `Qwen Code` · `Factory` · `CodeBuddy` · `ZCode Desktop`
 - **零配置自动发现**：
-  `DeepSeek Harness (DSH)`（无需安装 Hook，自动读取本机会话缓存并支持点击聚焦窗口）
+  `Google Antigravity`（同时支持本地 `transcript.jsonl` 自动发现与 `~/.gemini/config/hooks.json` 实时推送）· `DeepSeek Harness (DSH)`（无需安装 Hook，自动读取本机会话缓存并支持点击聚焦窗口）
 
 </details>
 

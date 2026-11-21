@@ -24,6 +24,9 @@ public static class ProcessDiscovery
             else if (exe is "opencode.exe") aliveAgents.Add(AgentSource.OpenCode);
             else if (exe is "cursor.exe") aliveAgents.Add(AgentSource.Cursor);
             else if (exe is "gemini.exe") aliveAgents.Add(AgentSource.Gemini);
+            else if (exe is "antigravity.exe" or "antigravity-ide.exe" or "antigravity-desktop.exe" or "agy.exe"
+                     || exe.Contains("antigravity", StringComparison.Ordinal))
+                aliveAgents.Add(AgentSource.Antigravity);
             else if (exe is "kimi.exe") aliveAgents.Add(AgentSource.Kimi);
             else if (exe is "grok.exe") aliveAgents.Add(AgentSource.Grok);
             else if (exe is "hermes.exe") aliveAgents.Add(AgentSource.Hermes);

@@ -186,7 +186,7 @@ public static class Strings
         ["AgentSummaryHint"]    = ("本地 Hook / 插件配置文件状态", "Local hook / plugin configuration state"),
         ["RepairShort"]         = ("修复", "Repair"),
         ["UsageTitle"]          = ("用量监控", "Usage"),
-        ["UsageDesc"]           = ("在本地读取 Claude Code 与 Codex 的 5 小时 / 7 天额度窗口。", "Inspect Claude Code and Codex 5-hour / 7-day quota windows locally."),
+        ["UsageDesc"]           = ("在本地读取 Claude Code、Codex 与 Google Antigravity 的 5 小时 / 7 天用量与额度。", "Inspect local 5-hour / 7-day quotas and token usage for Claude Code, Codex, and Google Antigravity."),
         ["RefreshUsage"]        = ("刷新用量", "Refresh usage"),
         ["UsagePrivacy"]        = ("数据仅从本机状态栏缓存与会话日志读取，不会上传。", "Read only from local status-line caches and session logs — nothing is uploaded."),
         ["UsageNoDataHint"]     = ("等待数据 · 安装 Claude 用量状态栏桥接后即可读取额度。", "Waiting for data · Install the Claude usage status-line bridge to read quotas."),
@@ -290,7 +290,35 @@ public static class Strings
         ["UpdateUpToDateMessage"]   = ("当前已安装最新稳定版本 Open Island v{0}。", "Open Island v{0} is the latest stable version."),
         ["UpdateCheckFailedTitle"]  = ("检查更新失败", "Update Check Failed"),
         ["PublishedAtFormat"]       = ("发布于 {0}", "Published {0}"),
-        ["NoReleaseNotes"]          = ("此版本未提供更新日志。", "No release notes were provided for this release.")
+        ["NoReleaseNotes"]          = ("此版本未提供更新日志。", "No release notes were provided for this release."),
+
+        // ---- Auto-detect & connect agents + Antigravity usage ----
+        ["AutoDetectAgentsLabel"]   = ("启动时自动检测本机 Agent", "Auto-detect local agents on startup"),
+        ["AutoDetectAgentsHint"]    = ("发现本机已安装但尚未接入的 AI 编程 Agent 时弹出确认提示，经你同意后再写入配置。", "Prompt for confirmation when installed but unconnected AI coding agents are detected on this PC."),
+        ["ScanAndConnectAgents"]    = ("扫描并接入本机 Agent", "Scan & Connect Local Agents"),
+        ["DetectedOnPc"]            = ("本机已检测到", "Detected on PC"),
+        ["NoNewAgentsDetected"]     = ("所有在本机检测到的 Agent 都已接入完成。", "All locally detected agents are already connected."),
+        ["AgentConnectWindowTitle"] = ("Open Island — 发现可接入的 Agent", "Open Island — Connect Local Agents"),
+        ["AgentConnectTitle"]       = ("发现本机已安装的 Agent", "Detected Agents on This PC"),
+        ["AgentConnectSubtitle"]    = ("以下 {0} 个 Agent 已在你的电脑上检测到但尚未接入 Open Island。确认后将向其配置文件写入托管 Hook（自动保留你原有的配置并备份）。", "Found {0} installed agent(s) on your machine not yet connected to Open Island. Confirm to install managed hooks (your existing config is preserved and backed up)."),
+        ["AgentConnectConfirm"]     = ("确认接入所选 ({0})", "Connect Selected ({0})"),
+        ["AgentConnectLater"]       = ("暂不接入", "Not Now"),
+        ["AgentConnectDontAsk"]     = ("不再提示这些 Agent", "Don't Ask Again"),
+        ["AgentConnectDone"]        = ("完成", "Done"),
+        ["AgentConnectDetectedVia"] = ("检测来源：{0}", "Detected via: {0}"),
+        ["AgentConnectTargetCfg"]   = ("将写入配置：{0}", "Config target: {0}"),
+        ["AgentConnectSuccess"]     = ("已成功接入 {0} 个 Agent。", "Connected {0} agent(s) successfully."),
+        ["AgentConnectPartialFail"] = ("已接入 {0} 个，{1} 个失败：{2}", "Connected {0}, {1} failed: {2}"),
+        ["AgentConnectRestartNote"] = ("提示：请重启对应 Agent 或开启新对话，使新接入的 Hook 立即生效。", "Tip: Restart the connected agent(s) or start a new chat so the hooks take effect."),
+        ["UsageLocalTokenStats"]    = ("本地日志统计", "Local log stats"),
+        ["UsageAntigravityTitle"]   = ("5 小时 / 7 天本地 Token 用量", "5-hour / 7-day local token usage"),
+        ["UsageAntigravityHint"]    = ("汇总自本机 Antigravity（Desktop / IDE / CLI）对话日志；官方剩余百分比额度由云端动态计算，请在 Antigravity 设置或 /usage 中查看。", "Aggregated from local Antigravity (Desktop / IDE / CLI) transcripts. Official remaining percentage quotas are computed server-side — check Antigravity Settings or /usage."),
+        ["UsageAntigravityNoData"]  = ("近 7 天内暂未读取到本机 Antigravity 对话 Token 记录。", "No local Antigravity transcript token activity found in the last 7 days."),
+        ["UsageRequestsFormat"]     = ("{0} 次模型调用", "{0} model calls"),
+        ["UsageInputLabel"]         = ("输入", "In"),
+        ["UsageCacheLabel"]         = ("缓存", "Cache"),
+        ["UsageOutputLabel"]        = ("输出", "Out"),
+        ["UsageTopModelsLabel"]     = ("近 7 天模型分布", "7-day model breakdown")
     };
 
     public static string Get(string key, params object[] args)

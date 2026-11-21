@@ -10,13 +10,6 @@ internal static class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        // Delegated-control skip guard (mirrors macOS OpenIslandHooks)
-        if (Environment.GetEnvironmentVariable("OPEN_ISLAND_SKIP_HOOKS") == "1"
-            || Environment.GetEnvironmentVariable("VIBE_ISLAND_SKIP") == "1")
-        {
-            return 0;
-        }
-
         string sourceArg = "claude";
         for (int i = 0; i < args.Length; i++)
         {
@@ -28,6 +21,14 @@ internal static class Program
         }
 
         var source = AgentRegistry.Parse(sourceArg);
+
+        // Delegated-control skip guard (mirrors macOS OpenIslandHooks)
+        if (Environment.GetEnvironmentVariable("OPEN_ISLAND_SKIP_HOOKS") == "1"
+            || Environment.GetEnvironmentVariable("VIBE_ISLAND_SKIP") == "1")
+        {
+            WriteEmptyJsonIfRequired(source);
+            return 0;
+        }
 
         string rawPayload = "{}";
         try
@@ -42,6 +43,7 @@ internal static class Program
         catch
         {
             // Fail open
+            WriteEmptyJsonIfRequired(source);
             return 0;
         }
 
@@ -69,15 +71,32 @@ internal static class Program
 
         var response = await BridgeClient.SendAsync(envelope);
 
-        // Only write directive JSON to stdout for blocking hook sources (fire-and-forget never writes stdout)
+        // Only write directive JSON to stdout for blocking hook sources (fire-and-forget never writes stdout),
+        // except Antigravity whose hook contract requires a JSON object on stdout (observational hooks return "{}").
         if (expectsDirective && response is { Ok: true } && !string.IsNullOrWhiteSpace(response.StdoutDirective))
         {
             Console.OutputEncoding = new UTF8Encoding(false);
             Console.Write(response.StdoutDirective);
             Console.Out.Flush();
         }
+        else
+        {
+            WriteEmptyJsonIfRequired(source);
+        }
 
         return 0;
+    }
+
+    private static void WriteEmptyJsonIfRequired(AgentSource source)
+    {
+        if (source != AgentSource.Antigravity) return;
+        try
+        {
+            Console.OutputEncoding = new UTF8Encoding(false);
+            Console.Write("{}");
+            Console.Out.Flush();
+        }
+        catch { }
     }
 
     private static string PeekEventName(string json)

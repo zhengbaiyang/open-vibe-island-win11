@@ -70,8 +70,10 @@ public partial class App : System.Windows.Application
         private set => _isCheckingForUpdates = value;
     }
     public event Action<UpdateCheckResult>? UpdateCheckCompleted;
+    public event Action? AgentInstallStateChanged;
     private SettingsWindow? _settingsWindow;
     private UpdateWindow? _updateWindow;
+    private AgentConnectWindow? _agentConnectWindow;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -167,21 +169,6 @@ public partial class App : System.Windows.Application
             CodexServer.StartIfAvailable();
         }
 
-        // Auto-install OpenCode plugin on first launch if ~/.config/opencode exists
-        if (Settings.AutoInstallOpenCodePlugin)
-        {
-            var openCodeDir = AgentRegistry.ExpandHomePath("~/.config/opencode");
-            if (Directory.Exists(openCodeDir))
-            {
-                var st = SetupManager.GetStatus(AgentRegistry.Get(AgentSource.OpenCode));
-                if (st.Status == HookInstallStatus.NotInstalled)
-                {
-                    AppLog.Info("auto-installing OpenCode plugin");
-                    SetupManager.Install(AgentSource.OpenCode);
-                }
-            }
-        }
-
         // Wire notification sounds
         Reducer.ApprovalRequested += _ => PlayNotificationSound(isUrgent: true);
         Reducer.QuestionRequested += _ => PlayNotificationSound(isUrgent: true);
@@ -205,6 +192,11 @@ public partial class App : System.Windows.Application
         };
         _pollTimer.Tick += (_, _) => RunDiscoveryPass();
         _pollTimer.Start();
+
+        if (Settings.AutoDetectAgentsOnStartup)
+        {
+            _ = RunStartupAgentDetectionAsync();
+        }
 
         if (Settings.AutoCheckForUpdates)
         {
@@ -537,6 +529,94 @@ public partial class App : System.Windows.Application
         Settings.SkippedUpdateVersion = version;
         Settings.Save();
         AppLog.Info($"skipped update version v{version}");
+    }
+
+    private async Task RunStartupAgentDetectionAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(1800), _shutdownCts.Token).ConfigureAwait(false);
+            var candidates = SetupManager.GetDetectedUnconnectedAgents(Settings.DismissedAutoConnectAgents);
+            if (candidates.Count == 0) return;
+
+            AppLog.Info($"startup agent detection found {candidates.Count} unconnected agent(s): {string.Join(", ", candidates.Select(c => c.Agent.CliKey))}");
+            await Dispatcher.InvokeAsync(() => ShowAgentConnectWindow(candidates));
+        }
+        catch (OperationCanceledException)
+        {
+            // App shutting down before startup detection ran.
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"startup agent detection failed: {ex.Message}");
+        }
+    }
+
+    public bool PromptConnectDetectedAgents(bool includeDismissed = true)
+    {
+        var candidates = SetupManager.GetDetectedUnconnectedAgents(
+            includeDismissed ? null : Settings.DismissedAutoConnectAgents);
+        if (candidates.Count == 0) return false;
+        ShowAgentConnectWindow(candidates);
+        return true;
+    }
+
+    public void ShowAgentConnectWindow(IReadOnlyList<AgentInstallState> candidates)
+    {
+        if (candidates.Count == 0) return;
+
+        if (_agentConnectWindow is { IsLoaded: true })
+        {
+            _agentConnectWindow.LoadCandidates(candidates);
+            if (_agentConnectWindow.WindowState == WindowState.Minimized)
+                _agentConnectWindow.WindowState = WindowState.Normal;
+            _agentConnectWindow.Activate();
+            return;
+        }
+
+        _agentConnectWindow = new AgentConnectWindow(this, candidates);
+        _agentConnectWindow.Closed += (_, _) => _agentConnectWindow = null;
+        _agentConnectWindow.Show();
+        _agentConnectWindow.Activate();
+        AppLog.Info($"agent connect confirmation dialog opened for {candidates.Count} agent(s)");
+    }
+
+    public void DismissAutoConnectAgents(IEnumerable<string> cliKeys)
+    {
+        var set = new HashSet<string>(
+            Settings.DismissedAutoConnectAgents ?? new List<string>(),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var k in cliKeys)
+        {
+            if (!string.IsNullOrWhiteSpace(k)) set.Add(k.Trim().ToLowerInvariant());
+        }
+        Settings.DismissedAutoConnectAgents = set.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
+        Settings.Save();
+        AppLog.Info($"dismissed auto-connect prompt for: {string.Join(", ", Settings.DismissedAutoConnectAgents)}");
+    }
+
+    public void ClearDismissedAutoConnectAgents(IEnumerable<string> cliKeys)
+    {
+        if (Settings.DismissedAutoConnectAgents is null || Settings.DismissedAutoConnectAgents.Count == 0) return;
+        var toRemove = new HashSet<string>(cliKeys, StringComparer.OrdinalIgnoreCase);
+        var before = Settings.DismissedAutoConnectAgents.Count;
+        Settings.DismissedAutoConnectAgents.RemoveAll(k => toRemove.Contains(k));
+        if (Settings.DismissedAutoConnectAgents.Count != before)
+        {
+            Settings.Save();
+        }
+    }
+
+    public void NotifyAgentInstallStateChanged()
+    {
+        try
+        {
+            AgentInstallStateChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"AgentInstallStateChanged subscriber error: {ex.Message}");
+        }
     }
 
     public void ShutdownForUpdate(PreparedUpdate prepared)

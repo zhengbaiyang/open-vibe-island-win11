@@ -438,8 +438,16 @@ public sealed class SessionStateReducer
                     existing.LastPrompt = discovered.LastPrompt ?? existing.LastPrompt;
                     existing.LastAssistantMessage = discovered.LastAssistantMessage ?? existing.LastAssistantMessage;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
-                    if (discovered.Phase == SessionPhase.Running) existing.Phase = SessionPhase.Running;
-                    else if (existing.Phase == SessionPhase.Running) existing.Phase = SessionPhase.Idle;
+                    existing.Model = discovered.Model ?? existing.Model;
+                    existing.ActiveToolName = discovered.ActiveToolName;
+                    existing.ActiveToolPreview = discovered.ActiveToolPreview;
+                    existing.Phase = discovered.Phase;
+                }
+                else if (!existing.IsHookManaged && existing.Phase == SessionPhase.Running && discovered.Phase != SessionPhase.Running)
+                {
+                    existing.Phase = discovered.Phase;
+                    existing.ActiveToolName = discovered.ActiveToolName;
+                    existing.ActiveToolPreview = discovered.ActiveToolPreview;
                 }
 
                 // A previously expired conversation becomes visible again when it gets new

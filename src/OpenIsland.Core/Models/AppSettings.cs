@@ -45,7 +45,9 @@ public sealed class AppSettings
     /// <summary>Seconds without pointer interaction before the island auto-hides (5-300).</summary>
     public int AutoHideDelaySeconds { get; set; } = 30;
     public bool EnableCodexAppServer { get; set; } = true;
-    public bool AutoInstallOpenCodePlugin { get; set; } = true;
+    public bool AutoInstallOpenCodePlugin { get; set; } = false;
+    public bool AutoDetectAgentsOnStartup { get; set; } = true;
+    public List<string> DismissedAutoConnectAgents { get; set; } = new();
     public int PollIntervalMs { get; set; } = 2000;
     public string ToggleHotkey { get; set; } = "Ctrl+Alt+I";
     public int CompletionCardSeconds { get; set; } = 8;
