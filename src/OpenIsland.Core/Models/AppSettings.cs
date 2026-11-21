@@ -35,6 +35,8 @@ public sealed class AppSettings
     /// </summary>
     public bool CoalesceRecurringSessions { get; set; } = true;
     public bool LaunchAtStartup { get; set; } = false;
+    public bool AutoCheckForUpdates { get; set; } = true;
+    public string? SkippedUpdateVersion { get; set; }
     /// <summary>
     /// Tuck the island into the screen edge after a period without pointer interaction
     /// (it slides back in when the pointer reaches that edge).
