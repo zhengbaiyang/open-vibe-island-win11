@@ -95,41 +95,76 @@ public partial class SettingsWindow : Window
         UpdateAppearancePreview();
 
         // Sliding segmented pill for the language selector.
-        LanguageSegmentHost.Loaded += (_, _) =>
+        LanguageSegmentHost.Loaded += (_, _) => ScheduleLanguageSegmentPillSync();
+        LanguageSegmentHost.IsVisibleChanged += (_, e) =>
         {
-            UpdateLanguageSegmentPill(animate: false);
-            _languagePillInitialized = true;
+            if (e.NewValue is true)
+                ScheduleLanguageSegmentPillSync();
         };
         LanguageSegmentHost.SizeChanged += (_, _) => UpdateLanguageSegmentPill(animate: false);
     }
 
     private bool _languagePillInitialized;
+    private bool _languagePillSyncPending;
 
     private void LanguageSegment_Checked(object sender, RoutedEventArgs e)
     {
         UpdateLanguageSegmentPill(animate: _languagePillInitialized && _controlsReady);
-        _languagePillInitialized = true;
+    }
+
+    private void ScheduleLanguageSegmentPillSync()
+    {
+        if (_languagePillSyncPending || LanguageSegmentHost is null) return;
+        _languagePillSyncPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _languagePillSyncPending = false;
+            UpdateLanguageSegmentPill(animate: false, allowDefer: false);
+        }));
     }
 
     /// <summary>
     /// Moves the highlighted pill behind the 中文 / English segmented button instead of
     /// fading a per-button background in place, so changing the selection has visible motion.
     /// </summary>
-    private void UpdateLanguageSegmentPill(bool animate)
+    private void UpdateLanguageSegmentPill(bool animate, bool allowDefer = true)
     {
         if (LanguageSegmentHost is null || LanguageSegmentPill is null) return;
 
         var selected = LanguageEnSegment.IsChecked == true
             ? LanguageEnSegment
             : LanguageZhSegment.IsChecked == true ? LanguageZhSegment : null;
-        if (selected is null || !LanguageSegmentHost.IsLoaded)
+        if (selected is null)
         {
             LanguageSegmentPill.Visibility = Visibility.Collapsed;
+            _languagePillInitialized = false;
+            return;
+        }
+
+        if (!LanguageSegmentHost.IsLoaded || !LanguageSegmentHost.IsVisible)
+            return;
+
+        if (selected.RenderSize.Width <= 0 || selected.RenderSize.Height <= 0 ||
+            !LanguageSegmentHost.IsAncestorOf(selected))
+        {
+            if (allowDefer)
+                ScheduleLanguageSegmentPillSync();
             return;
         }
 
         var rect = selected.TransformToAncestor(LanguageSegmentHost)
             .TransformBounds(new Rect(new Point(0, 0), selected.RenderSize));
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            if (allowDefer)
+                ScheduleLanguageSegmentPillSync();
+            return;
+        }
+
+        bool canAnimate = animate
+            && _languagePillInitialized
+            && LanguageSegmentPill.Visibility == Visibility.Visible
+            && LanguageSegmentPill.ActualWidth > 0;
 
         double fromWidth = LanguageSegmentPill.ActualWidth > 0 ? LanguageSegmentPill.ActualWidth : rect.Width;
         double fromX = LanguageSegmentPillTransform.X;
@@ -141,8 +176,9 @@ public partial class SettingsWindow : Window
         // Keep the base value at the new position: the animation then starts from the old
         // rendered position and, with FillBehavior.Stop, lands on this base value.
         LanguageSegmentPillTransform.X = rect.X;
+        _languagePillInitialized = true;
 
-        if (!animate)
+        if (!canAnimate || (Math.Abs(fromX - rect.X) < 0.5 && Math.Abs(fromWidth - rect.Width) < 0.5))
         {
             LanguageSegmentPill.BeginAnimation(WidthProperty, null);
             LanguageSegmentPillTransform.BeginAnimation(TranslateTransform.XProperty, null);
@@ -298,6 +334,9 @@ public partial class SettingsWindow : Window
                 break;
             case "appearance":
                 UpdateAppearancePreview();
+                break;
+            case "general":
+                ScheduleLanguageSegmentPillSync();
                 break;
         }
     }
@@ -517,6 +556,8 @@ public partial class SettingsWindow : Window
         UpdateSliderLabels();
         _controlsReady = true;
         UpdateAppearancePreview();
+        if (LanguageSegmentHost?.IsVisible == true)
+            ScheduleLanguageSegmentPillSync();
     }
 
     private void PopulateMonitorCombo(int selectedIndex)

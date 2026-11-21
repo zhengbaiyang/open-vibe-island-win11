@@ -394,8 +394,6 @@
                             <Setter TargetName="Icon" Property="Fill" Value="#B7C2D4"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Sel" Property="Opacity" Value="1"/>
-                            <Setter TargetName="Indicator" Property="Opacity" Value="1"/>
                             <Setter TargetName="Icon" Property="Fill" Value="{StaticResource SettingsAccent}"/>
                             <Setter Property="Foreground" Value="White"/>
                             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -403,13 +401,17 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="Sel" Storyboard.TargetProperty="Opacity"
-                                                         From="0" To="1" Duration="0:0:0.16">
+                                                         To="1" Duration="0:0:0.16">
                                             <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut"/>
                                             </DoubleAnimation.EasingFunction>
                                         </DoubleAnimation>
                                         <DoubleAnimation Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Opacity"
-                                                         From="0" To="1" Duration="0:0:0.18"/>
+                                                         To="1" Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.EnterActions>
@@ -442,50 +444,87 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="CheckBox">
-                    <Grid Width="40" Height="22" Background="Transparent">
-                        <Border x:Name="Track" Width="40" Height="22" CornerRadius="11"
-                                Background="#2A3140" BorderBrush="#384253" BorderThickness="1"/>
+                    <Grid Width="40" Height="22" Background="Transparent" SnapsToDevicePixels="True">
+                        <Border x:Name="Track" Width="40" Height="22" CornerRadius="11" BorderThickness="1">
+                            <Border.Background>
+                                <SolidColorBrush Color="#2A3140"/>
+                            </Border.Background>
+                            <Border.BorderBrush>
+                                <SolidColorBrush Color="#384253"/>
+                            </Border.BorderBrush>
+                        </Border>
+                        <Border x:Name="TrackHover" Width="40" Height="22" CornerRadius="11"
+                                Background="#14FFFFFF" BorderBrush="#26FFFFFF" BorderThickness="1"
+                                Opacity="0" IsHitTestVisible="False"/>
                         <Ellipse x:Name="Thumb" Width="16" Height="16" Fill="#F2F4F8"
                                  HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0">
+                            <Ellipse.RenderTransform>
+                                <TranslateTransform X="0"/>
+                            </Ellipse.RenderTransform>
                             <Ellipse.Effect>
                                 <DropShadowEffect Color="Black" BlurRadius="4" ShadowDepth="1" Opacity="0.28"/>
                             </Ellipse.Effect>
                         </Ellipse>
                     </Grid>
                     <ControlTemplate.Triggers>
-                        <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="Track" Property="Background" Value="#6EA7FF"/>
-                            <Setter TargetName="Track" Property="BorderBrush" Value="#9BC4FF"/>
-                            <Setter TargetName="Thumb" Property="Margin" Value="21,0,0,0"/>
-                            <Trigger.EnterActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <ThicknessAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Margin"
-                                                            From="3,0,0,0" To="21,0,0,0" Duration="0:0:0.2">
-                                            <ThicknessAnimation.EasingFunction>
-                                                <CubicEase EasingMode="EaseOut"/>
-                                            </ThicknessAnimation.EasingFunction>
-                                        </ThicknessAnimation>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="TrackHover" Property="Opacity" Value="1"/>
                         </Trigger>
-                        <Trigger Property="IsChecked" Value="False">
-                            <Setter TargetName="Track" Property="Background" Value="#2A3140"/>
-                            <Setter TargetName="Track" Property="BorderBrush" Value="#384253"/>
-                            <Setter TargetName="Thumb" Property="Margin" Value="3,0,0,0"/>
+                        <Trigger Property="IsChecked" Value="True">
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>
-                                        <ThicknessAnimation Storyboard.TargetName="Thumb" Storyboard.TargetProperty="Margin"
-                                                            From="21,0,0,0" To="3,0,0,0" Duration="0:0:0.2">
-                                            <ThicknessAnimation.EasingFunction>
+                                        <DoubleAnimation Storyboard.TargetName="Thumb"
+                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                                         To="18" Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut"/>
-                                            </ThicknessAnimation.EasingFunction>
-                                        </ThicknessAnimation>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <ColorAnimation Storyboard.TargetName="Track"
+                                                        Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                        To="#6EA7FF" Duration="0:0:0.18">
+                                            <ColorAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </ColorAnimation.EasingFunction>
+                                        </ColorAnimation>
+                                        <ColorAnimation Storyboard.TargetName="Track"
+                                                        Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                        To="#9BC4FF" Duration="0:0:0.18">
+                                            <ColorAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </ColorAnimation.EasingFunction>
+                                        </ColorAnimation>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Thumb"
+                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                                         To="0" Duration="0:0:0.18">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <ColorAnimation Storyboard.TargetName="Track"
+                                                        Storyboard.TargetProperty="(Border.Background).(SolidColorBrush.Color)"
+                                                        To="#2A3140" Duration="0:0:0.18">
+                                            <ColorAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </ColorAnimation.EasingFunction>
+                                        </ColorAnimation>
+                                        <ColorAnimation Storyboard.TargetName="Track"
+                                                        Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
+                                                        To="#384253" Duration="0:0:0.18">
+                                            <ColorAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </ColorAnimation.EasingFunction>
+                                        </ColorAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4"/>
@@ -577,7 +616,7 @@
                                 <BeginStoryboard>
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="SelRing" Storyboard.TargetProperty="Opacity"
-                                                         From="0" To="1" Duration="0:0:0.18">
+                                                         To="1" Duration="0:0:0.18">
                                             <DoubleAnimation.EasingFunction>
                                                 <CubicEase EasingMode="EaseOut"/>
                                             </DoubleAnimation.EasingFunction>
@@ -604,6 +643,12 @@
                                     <Storyboard>
                                         <DoubleAnimation Storyboard.TargetName="SelRing" Storyboard.TargetProperty="Opacity"
                                                          To="0" Duration="0:0:0.12"/>
+                                        <DoubleAnimation Storyboard.TargetName="Check"
+                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                                         To="0.6" Duration="0:0:0.08"/>
+                                        <DoubleAnimation Storyboard.TargetName="Check"
+                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                                         To="0.6" Duration="0:0:0.08"/>
                                     </Storyboard>
                                 </BeginStoryboard>
                             </Trigger.ExitActions>
@@ -683,7 +728,7 @@
                                               HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,13,0"
                                               RenderTransformOrigin="0.5,0.5">
                                             <Path.RenderTransform>
-                                                <RotateTransform x:Name="ArrowRotate" Angle="0"/>
+                                                <RotateTransform Angle="0"/>
                                             </Path.RenderTransform>
                                         </Path>
                                     </Border>
@@ -697,8 +742,8 @@
                                             <Trigger.EnterActions>
                                                 <BeginStoryboard>
                                                     <Storyboard>
-                                                        <DoubleAnimation Storyboard.TargetName="ArrowRotate"
-                                                                         Storyboard.TargetProperty="Angle"
+                                                        <DoubleAnimation Storyboard.TargetName="Arrow"
+                                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
                                                                          To="180" Duration="0:0:0.16">
                                                             <DoubleAnimation.EasingFunction>
                                                                 <CubicEase EasingMode="EaseOut"/>
@@ -710,9 +755,13 @@
                                             <Trigger.ExitActions>
                                                 <BeginStoryboard>
                                                     <Storyboard>
-                                                        <DoubleAnimation Storyboard.TargetName="ArrowRotate"
-                                                                         Storyboard.TargetProperty="Angle"
-                                                                         To="0" Duration="0:0:0.16"/>
+                                                        <DoubleAnimation Storyboard.TargetName="Arrow"
+                                                                         Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                                         To="0" Duration="0:0:0.16">
+                                                            <DoubleAnimation.EasingFunction>
+                                                                <CubicEase EasingMode="EaseOut"/>
+                                                            </DoubleAnimation.EasingFunction>
+                                                        </DoubleAnimation>
                                                     </Storyboard>
                                                 </BeginStoryboard>
                                             </Trigger.ExitActions>
@@ -803,6 +852,78 @@
                         </Track>
                     </Grid>
                     <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ============================================================
+         Slim modern progress bar (determinate & indeterminate)
+         ============================================================ -->
+    <Style x:Key="ModernProgressBar" TargetType="ProgressBar">
+        <Setter Property="Height" Value="8"/>
+        <Setter Property="Minimum" Value="0"/>
+        <Setter Property="Maximum" Value="100"/>
+        <Setter Property="Background" Value="#1A1F29"/>
+        <Setter Property="Foreground" Value="{StaticResource AccentGradientBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid Height="{TemplateBinding Height}" SnapsToDevicePixels="True">
+                        <Border x:Name="PART_Track"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="4"/>
+                        <Border x:Name="PART_Indicator"
+                                HorizontalAlignment="Left"
+                                CornerRadius="4"
+                                Background="{TemplateBinding Foreground}"/>
+                        <Border x:Name="IndeterminateOverlay"
+                                CornerRadius="4"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                    <LinearGradientBrush.RelativeTransform>
+                                        <TranslateTransform X="-1"/>
+                                    </LinearGradientBrush.RelativeTransform>
+                                    <GradientStop Color="#006EA7FF" Offset="0.0"/>
+                                    <GradientStop Color="#6EA7FF" Offset="0.3"/>
+                                    <GradientStop Color="#8B7CF6" Offset="0.7"/>
+                                    <GradientStop Color="#008B7CF6" Offset="1.0"/>
+                                </LinearGradientBrush>
+                            </Border.Background>
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="PART_Indicator" Property="Visibility" Value="Collapsed"/>
+                            <Setter TargetName="IndeterminateOverlay" Property="Visibility" Value="Visible"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="IndeterminateStoryboard">
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="IndeterminateOverlay"
+                                                         Storyboard.TargetProperty="(Border.Background).(Brush.RelativeTransform).(TranslateTransform.X)"
+                                                         From="-1" To="1" Duration="0:0:1.35">
+                                            <DoubleAnimation.EasingFunction>
+                                                <SineEase EasingMode="EaseInOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="IndeterminateStoryboard"/>
+                            </Trigger.ExitActions>
+                        </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4"/>
                         </Trigger>
