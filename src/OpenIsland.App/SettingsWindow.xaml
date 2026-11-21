@@ -826,7 +826,7 @@
                                                        VerticalAlignment="Center"/>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                                 <ComboBox x:Name="SoundCombo" Style="{StaticResource DarkComboBox}"
-                                                          Width="170" Height="34" Padding="10,0" Margin="0,0,8,0">
+                                                          Width="195" Height="34" Padding="10,0" Margin="0,0,8,0">
                                                     <ComboBoxItem Content="Asterisk" Tag="Asterisk"/>
                                                     <ComboBoxItem Content="Exclamation" Tag="Exclamation"/>
                                                     <ComboBoxItem Content="Beep" Tag="Beep"/>

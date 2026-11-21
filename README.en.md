@@ -64,10 +64,10 @@ Open Island brings live agent activity into a lightweight Dynamic Island docked 
 | --- | --- |
 | **Live multi-agent sessions** | Supports 16+ popular AI coding agents (including **Google Antigravity Desktop / IDE / CLI**), plus zero-config **DeepSeek Harness (DSH)** discovery. |
 | **Auto-detect & confirm onboarding** | Automatically detects installed-but-unconnected agents on startup and asks for your confirmation before writing managed hooks (with automatic config backup). |
-| **Approvals, questions & completions** | Slides out and expands when attention is required, with inline responses and customizable Windows notification sounds. |
+| **Approvals, questions & completions** | Slides out and expands when attention is required, with inline responses and 9 studio-grade 48 kHz 16-bit stereo acoustic chime schemes. |
 | **Click to jump back** | Opens the exact Codex thread via `codex://threads/<id>` (or `codex resume`), runs `claude --resume` for Claude, or focuses Antigravity and DSH windows. |
 | **Idle auto-hide** | Tucks neatly into the screen edge after inactivity and slides back when your pointer reaches the edge; never hides with pending approvals. |
-| **Local usage monitoring** | Reads Claude Code & Codex 5-hour / 7-day quota windows plus **Google Antigravity** local 5-hour / 7-day token usage and model breakdown. |
+| **Unified usage monitoring** | Tracks **Claude Code, Codex, Google Antigravity, and DeepSeek Harness**: unconnected agents show a clear `Not Connected` status with quick setup navigation; connected agents show remaining quotas (omitted for DSH), 5h/7d used model tokens, and 7-day model usage distribution. |
 | **Session de-duplication & safe hooks** | Coalesces recurring Codex scheduled tasks and subagent threads; uses official `hooks.json` without corrupting `config.toml`. |
 | **In-app auto-updates** | Checks GitHub Releases on startup, enforces strict `SHA256SUMS.txt` verification, and upgrades both installed and portable builds smoothly. |
 | **Native polish & customization** | Pure Black / Graphite themes, top/bottom docking, multi-monitor picker, Chinese/English UI, Windows startup sync, and `Ctrl+Alt+I` toggle. |

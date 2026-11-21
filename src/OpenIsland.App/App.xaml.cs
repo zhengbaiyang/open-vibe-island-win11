@@ -639,63 +639,37 @@ public partial class App : System.Windows.Application
     private static readonly object WavLock = new();
 
     /// <summary>
-    /// Plays the configured notification sound.
-    /// The same sound scheme is used for approvals, questions and completions so the
-    /// choice made in Settings is honoured everywhere. <paramref name="soundOverride"/>
-    /// lets the Settings "preview" button audition the currently selected (not yet saved) sound.
+    /// Plays the configured notification sound via the 48 kHz 16-bit Stereo PCM
+    /// <see cref="NotificationSoundEngine"/> acoustic chime synthesizer.
+    /// <paramref name="soundOverride"/> lets the Settings "preview" button audition
+    /// the currently selected (not yet saved) sound scheme.
     /// </summary>
     public void PlayNotificationSound(bool isUrgent, string? soundOverride = null, bool ignoreEnabled = false)
     {
         if (!ignoreEnabled && !Settings.SoundEnabled) return;
 
         var sound = string.IsNullOrWhiteSpace(soundOverride) ? Settings.NotificationSound : soundOverride;
+        var scheme = NotificationSoundEngine.NormalizeScheme(sound);
+        var cacheKey = $"{scheme}:{(isUrgent ? "urgent" : "normal")}";
+
         try
         {
-            switch ((sound ?? "").Trim())
-            {
-                case "Exclamation": SystemSounds.Exclamation.Play(); break;
-                case "Beep": SystemSounds.Beep.Play(); break;
-                case "Hand": SystemSounds.Hand.Play(); break;
-                case "Notify": PlayWav("notify.wav"); break;
-                case "Ding": PlayWav("ding.wav"); break;
-                case "Chimes": PlayWav("chimes.wav"); break;
-                case "Tada": PlayWav("tada.wav"); break;
-                case "WindowsNotify": PlayWav("Windows Notify System Generic.wav"); break;
-                case "WindowsExclamation": PlayWav("Windows Exclamation.wav"); break;
-                case "Asterisk":
-                default: SystemSounds.Asterisk.Play(); break;
-            }
-        }
-        catch { }
-    }
-
-    private static void PlayWav(string fileName)
-    {
-        try
-        {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Windows), "Media", fileName);
-            if (!File.Exists(path))
-            {
-                SystemSounds.Asterisk.Play();
-                return;
-            }
-
             SoundPlayer player;
             lock (WavLock)
             {
-                if (!WavPlayers.TryGetValue(path, out player!))
+                if (!WavPlayers.TryGetValue(cacheKey, out player!))
                 {
-                    player = new SoundPlayer(path);
+                    var wavBytes = NotificationSoundEngine.GetWavBytes(scheme, isUrgent);
+                    player = new SoundPlayer(new MemoryStream(wavBytes, writable: false));
                     player.Load();
-                    WavPlayers[path] = player;
+                    WavPlayers[cacheKey] = player;
                 }
             }
             player.Play();
         }
         catch
         {
-            SystemSounds.Asterisk.Play();
+            try { SystemSounds.Asterisk.Play(); } catch { }
         }
     }
 

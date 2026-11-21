@@ -945,90 +945,40 @@ public sealed class TranscriptDiscovery
         return null;
     }
 
-    public static List<UsageWindowInfo> ReadUsageWindows()
+    public static List<UsageWindowInfo> ReadUsageWindows(
+        Setup.HookInstallManager? setupManager = null,
+        IReadOnlyDictionary<AgentSource, bool>? connectionOverrides = null)
     {
-        var list = new List<UsageWindowInfo>();
+        var manager = setupManager ?? new Setup.HookInstallManager();
 
-        // 1. Claude Code cached rate_limits from managed statusLine (%TEMP%\open-island-rl.json)
-        var claudeUsage = new UsageWindowInfo
+        bool IsConnected(AgentSource source)
         {
-            AgentName = "Claude Code",
-            Note = "Requires Claude statusLine bridge (installable in Settings -> Setup)"
-        };
-        if (File.Exists(BridgeConstants.ClaudeRateLimitCachePath))
-        {
+            if (connectionOverrides != null && connectionOverrides.TryGetValue(source, out var overridden))
+            {
+                return overridden;
+            }
             try
             {
-                var json = File.ReadAllText(BridgeConstants.ClaudeRateLimitCachePath);
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("five_hour", out var fh) && fh.TryGetProperty("utilization", out var fhVal))
-                {
-                    claudeUsage.FiveHourPercent = fhVal.GetDouble();
-                    if (fh.TryGetProperty("resets_at", out var r)) claudeUsage.FiveHourResetText = r.GetString();
-                }
-                if (root.TryGetProperty("seven_day", out var sd) && sd.TryGetProperty("utilization", out var sdVal))
-                {
-                    claudeUsage.SevenDayPercent = sdVal.GetDouble();
-                    if (sd.TryGetProperty("resets_at", out var r)) claudeUsage.SevenDayResetText = r.GetString();
-                }
-                claudeUsage.LastUpdated = new FileInfo(BridgeConstants.ClaudeRateLimitCachePath).LastWriteTime;
-                claudeUsage.Note = null;
+                var st = manager.GetStatus(AgentRegistry.Get(source));
+                return st.Status == Setup.HookInstallStatus.Installed ||
+                       st.Status == Setup.HookInstallStatus.Partial;
             }
-            catch { }
-        }
-        list.Add(claudeUsage);
-
-        // 2. Codex rollout rate_limits scan
-        var codexUsage = new UsageWindowInfo
-        {
-            AgentName = "Codex",
-            Note = "Reads 5h/7d windows from latest ~/.codex/sessions/**/rollout-*.jsonl"
-        };
-        var codexDir = AgentRegistry.ExpandHomePath("~/.codex/sessions");
-        if (Directory.Exists(codexDir))
-        {
-            try
+            catch
             {
-                var latest = Directory.EnumerateFiles(codexDir, "rollout-*.jsonl", SearchOption.AllDirectories)
-                    .Select(f => new FileInfo(f))
-                    .OrderByDescending(f => f.LastWriteTimeUtc)
-                    .FirstOrDefault();
-
-                if (latest != null)
-                {
-                    foreach (var line in ReadTailLines(latest.FullName, 80).Reverse())
-                    {
-                        if (!line.Contains("rate_limits", StringComparison.OrdinalIgnoreCase)) continue;
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(line);
-                            if (TryFindRateLimits(doc.RootElement, out var rl))
-                            {
-                                if (rl.TryGetProperty("primary", out var p) && p.TryGetProperty("used_percent", out var pv))
-                                    codexUsage.FiveHourPercent = pv.GetDouble();
-                                if (rl.TryGetProperty("secondary", out var s) && s.TryGetProperty("used_percent", out var sv))
-                                    codexUsage.SevenDayPercent = sv.GetDouble();
-                                codexUsage.LastUpdated = latest.LastWriteTime;
-                                codexUsage.Note = null;
-                                break;
-                            }
-                        }
-                        catch { }
-                    }
-                }
+                return false;
             }
-            catch { }
         }
-        list.Add(codexUsage);
 
-        // 3. Google Antigravity local transcript token aggregation (5h & 7d windows)
-        list.Add(ReadAntigravityUsage());
-
-        return list;
+        return
+        [
+            ReadClaudeUsage(IsConnected(AgentSource.Claude)),
+            ReadCodexUsage(IsConnected(AgentSource.Codex)),
+            ReadAntigravityUsage(IsConnected(AgentSource.Antigravity)),
+            ReadDeepSeekHarnessUsage(IsConnected(AgentSource.DeepSeekHarness))
+        ];
     }
 
-    private static UsageWindowInfo ReadAntigravityUsage()
+    private static UsageWindowInfo ReadClaudeUsage(bool isConnected)
     {
         var nowUtc = DateTimeOffset.UtcNow;
         var fiveHourCutoff = nowUtc.AddHours(-5);
@@ -1036,9 +986,337 @@ public sealed class TranscriptDiscovery
 
         var usage = new UsageWindowInfo
         {
+            Source = AgentSource.Claude,
+            AgentName = "Claude Code",
+            IsConnected = isConnected,
+            SupportsRemainingQuota = true,
+            Note = Localization.Strings.Get("UsageClaudeQuotaHint")
+        };
+
+        // 1. Rate-limit quota from managed statusLine cache (%TEMP%\open-island-rl.json)
+        if (File.Exists(BridgeConstants.ClaudeRateLimitCachePath))
+        {
+            try
+            {
+                var json = File.ReadAllText(BridgeConstants.ClaudeRateLimitCachePath);
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                bool foundAny = false;
+                if (root.TryGetProperty("five_hour", out var fh) && fh.ValueKind == JsonValueKind.Object &&
+                    fh.TryGetProperty("utilization", out var fhVal) && fhVal.TryGetDouble(out var fhPct))
+                {
+                    usage.FiveHourPercent = fhPct;
+                    usage.FiveHourResetText = TryGetResetString(fh);
+                    foundAny = true;
+                }
+                if (root.TryGetProperty("seven_day", out var sd) && sd.ValueKind == JsonValueKind.Object &&
+                    sd.TryGetProperty("utilization", out var sdVal) && sdVal.TryGetDouble(out var sdPct))
+                {
+                    usage.SevenDayPercent = sdPct;
+                    usage.SevenDayResetText = TryGetResetString(sd);
+                    foundAny = true;
+                }
+                if (foundAny)
+                {
+                    usage.HasQuotaData = true;
+                    usage.LastUpdated = new FileInfo(BridgeConstants.ClaudeRateLimitCachePath).LastWriteTime;
+                    usage.Note = null;
+                }
+            }
+            catch { }
+        }
+
+        // 2. Local project transcript token & model usage (~/.claude/projects/**/*.jsonl)
+        var baseDir = AgentRegistry.ExpandHomePath("~/.claude/projects");
+        var perModel = new Dictionary<string, ModelUsageBreakdown>(StringComparer.OrdinalIgnoreCase);
+        DateTimeOffset? latestTokenActivity = null;
+
+        if (Directory.Exists(baseDir))
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(baseDir, "*.jsonl", SearchOption.AllDirectories))
+                {
+                    try
+                    {
+                        var info = new FileInfo(file);
+                        if (info.LastWriteTimeUtc < sevenDayCutoff.UtcDateTime) continue;
+
+                        var byMessageId = new Dictionary<string, (DateTimeOffset Ts, string Model, long Input, long Cache, long Output)>(StringComparer.Ordinal);
+                        var anonEntries = new List<(DateTimeOffset Ts, string Model, long Input, long Cache, long Output)>();
+
+                        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var reader = new StreamReader(fs);
+                        string? line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            if (!line.Contains("\"usage\"", StringComparison.Ordinal)) continue;
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(line);
+                                var root = doc.RootElement;
+                                if (root.ValueKind != JsonValueKind.Object) continue;
+                                if (!root.TryGetProperty("message", out var msgEl) || msgEl.ValueKind != JsonValueKind.Object)
+                                    continue;
+                                if (!msgEl.TryGetProperty("usage", out var uEl) || uEl.ValueKind != JsonValueKind.Object)
+                                    continue;
+
+                                var ts = TryParseJsonTimestamp(root, "timestamp")
+                                         ?? new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+                                if (ts < sevenDayCutoff) continue;
+
+                                long input = TryGetInt64(uEl, "input_tokens");
+                                long cache = TryGetInt64(uEl, "cache_read_input_tokens") +
+                                             TryGetInt64(uEl, "cache_creation_input_tokens");
+                                long output = TryGetInt64(uEl, "output_tokens");
+                                if (input + cache + output <= 0) continue;
+
+                                var model = msgEl.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String
+                                    ? mEl.GetString()
+                                    : null;
+                                if (string.IsNullOrWhiteSpace(model) ||
+                                    string.Equals(model, "<synthetic>", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    model = "claude";
+                                }
+
+                                var msgId = msgEl.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                                    ? idEl.GetString()
+                                    : null;
+
+                                if (!string.IsNullOrWhiteSpace(msgId))
+                                {
+                                    if (byMessageId.TryGetValue(msgId, out var prev))
+                                    {
+                                        byMessageId[msgId] = (
+                                            ts > prev.Ts ? ts : prev.Ts,
+                                            model,
+                                            Math.Max(prev.Input, input),
+                                            Math.Max(prev.Cache, cache),
+                                            Math.Max(prev.Output, output));
+                                    }
+                                    else
+                                    {
+                                        byMessageId[msgId] = (ts, model, input, cache, output);
+                                    }
+                                }
+                                else
+                                {
+                                    anonEntries.Add((ts, model, input, cache, output));
+                                }
+                            }
+                            catch { }
+                        }
+
+                        foreach (var entry in byMessageId.Values.Concat(anonEntries))
+                        {
+                            AccumulateTokenEntry(usage, perModel, entry.Ts, fiveHourCutoff, sevenDayCutoff,
+                                entry.Model, entry.Input, entry.Cache, entry.Output, ref latestTokenActivity);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Claude token usage scan failed: {ex.Message}");
+            }
+        }
+
+        FinalizeTokenUsage(usage, perModel, latestTokenActivity);
+        return usage;
+    }
+
+    private static UsageWindowInfo ReadCodexUsage(bool isConnected)
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var fiveHourCutoff = nowUtc.AddHours(-5);
+        var sevenDayCutoff = nowUtc.AddDays(-7);
+
+        var usage = new UsageWindowInfo
+        {
+            Source = AgentSource.Codex,
+            AgentName = "Codex",
+            IsConnected = isConnected,
+            SupportsRemainingQuota = true,
+            Note = Localization.Strings.Get("UsageCodexQuotaHint")
+        };
+
+        var codexDir = AgentRegistry.ExpandHomePath("~/.codex/sessions");
+        var perModel = new Dictionary<string, ModelUsageBreakdown>(StringComparer.OrdinalIgnoreCase);
+        DateTimeOffset? latestTokenActivity = null;
+        DateTimeOffset? latestQuotaTimestamp = null;
+
+        if (Directory.Exists(codexDir))
+        {
+            try
+            {
+                var files = Directory.EnumerateFiles(codexDir, "rollout-*.jsonl", SearchOption.AllDirectories)
+                    .Select(f => new FileInfo(f))
+                    .OrderByDescending(f => f.LastWriteTimeUtc)
+                    .ToList();
+
+                foreach (var file in files)
+                {
+                    bool isRecentForTokens = file.LastWriteTimeUtc >= sevenDayCutoff.UtcDateTime;
+                    if (!isRecentForTokens && usage.HasQuotaData) continue;
+
+                    try
+                    {
+                        string? currentModel = null;
+                        long prevNonCachedInput = 0;
+                        long prevCache = 0;
+                        long prevOutput = 0;
+                        var fileTokenEvents = new List<(DateTimeOffset Ts, string? Model, long Input, long Cache, long Output)>();
+
+                        using var fs = new FileStream(file.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        using var reader = new StreamReader(fs);
+                        string? line;
+                        while ((line = reader.ReadLine()) != null)
+                        {
+                            bool hasModel = line.Contains("\"model\"", StringComparison.Ordinal);
+                            bool hasRateLimits = line.Contains("\"rate_limits\"", StringComparison.Ordinal);
+                            bool hasTokenCount = isRecentForTokens && line.Contains("\"token_count\"", StringComparison.Ordinal);
+
+                            if (!hasModel && !hasRateLimits && !hasTokenCount) continue;
+
+                            try
+                            {
+                                using var doc = JsonDocument.Parse(line);
+                                var root = doc.RootElement;
+                                if (root.ValueKind != JsonValueKind.Object) continue;
+
+                                var lineTs = TryParseJsonTimestamp(root, "timestamp")
+                                             ?? new DateTimeOffset(file.LastWriteTimeUtc, TimeSpan.Zero);
+
+                                if (root.TryGetProperty("payload", out var payload) && payload.ValueKind == JsonValueKind.Object)
+                                {
+                                    if (payload.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String &&
+                                        !string.IsNullOrWhiteSpace(mEl.GetString()))
+                                    {
+                                        currentModel = mEl.GetString()!.Trim();
+                                    }
+
+                                    if (hasTokenCount &&
+                                        payload.TryGetProperty("type", out var ptEl) &&
+                                        string.Equals(ptEl.GetString(), "token_count", StringComparison.OrdinalIgnoreCase) &&
+                                        payload.TryGetProperty("info", out var infoEl) &&
+                                        infoEl.ValueKind == JsonValueKind.Object)
+                                    {
+                                        if (infoEl.TryGetProperty("total_token_usage", out var totEl) &&
+                                            totEl.ValueKind == JsonValueKind.Object)
+                                        {
+                                            long cumRawInput = TryGetInt64(totEl, "input_tokens");
+                                            long cumCache = TryGetInt64(totEl, "cached_input_tokens");
+                                            long cumNonCachedInput = cumRawInput >= cumCache ? cumRawInput - cumCache : cumRawInput;
+                                            long cumOutput = TryGetInt64(totEl, "output_tokens");
+
+                                            long dInput = Math.Max(0, cumNonCachedInput - prevNonCachedInput);
+                                            long dCache = Math.Max(0, cumCache - prevCache);
+                                            long dOutput = Math.Max(0, cumOutput - prevOutput);
+
+                                            prevNonCachedInput = Math.Max(prevNonCachedInput, cumNonCachedInput);
+                                            prevCache = Math.Max(prevCache, cumCache);
+                                            prevOutput = Math.Max(prevOutput, cumOutput);
+
+                                            if (dInput + dCache + dOutput > 0)
+                                            {
+                                                fileTokenEvents.Add((lineTs, currentModel, dInput, dCache, dOutput));
+                                            }
+                                        }
+                                        else if (infoEl.TryGetProperty("last_token_usage", out var lastEl) &&
+                                                 lastEl.ValueKind == JsonValueKind.Object)
+                                        {
+                                            long rawInput = TryGetInt64(lastEl, "input_tokens");
+                                            long cache = TryGetInt64(lastEl, "cached_input_tokens");
+                                            long nonCachedInput = rawInput >= cache ? rawInput - cache : rawInput;
+                                            long output = TryGetInt64(lastEl, "output_tokens");
+                                            if (nonCachedInput + cache + output > 0)
+                                            {
+                                                fileTokenEvents.Add((lineTs, currentModel, nonCachedInput, cache, output));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (hasRateLimits &&
+                                    (latestQuotaTimestamp is null || lineTs >= latestQuotaTimestamp) &&
+                                    TryFindRateLimits(root, out var rl))
+                                {
+                                    bool gotQuota = false;
+                                    double fhPct = usage.FiveHourPercent;
+                                    string? fhReset = usage.FiveHourResetText;
+                                    double sdPct = usage.SevenDayPercent;
+                                    string? sdReset = usage.SevenDayResetText;
+
+                                    if (rl.TryGetProperty("primary", out var p) && p.ValueKind == JsonValueKind.Object &&
+                                        p.TryGetProperty("used_percent", out var pv) && pv.TryGetDouble(out var pVal))
+                                    {
+                                        fhPct = pVal;
+                                        fhReset = TryGetResetString(p) ?? fhReset;
+                                        gotQuota = true;
+                                    }
+                                    if (rl.TryGetProperty("secondary", out var s) && s.ValueKind == JsonValueKind.Object &&
+                                        s.TryGetProperty("used_percent", out var sv) && sv.TryGetDouble(out var sVal))
+                                    {
+                                        sdPct = sVal;
+                                        sdReset = TryGetResetString(s) ?? sdReset;
+                                        gotQuota = true;
+                                    }
+
+                                    if (gotQuota)
+                                    {
+                                        usage.FiveHourPercent = fhPct;
+                                        usage.FiveHourResetText = fhReset;
+                                        usage.SevenDayPercent = sdPct;
+                                        usage.SevenDayResetText = sdReset;
+                                        usage.HasQuotaData = true;
+                                        usage.Note = null;
+                                        latestQuotaTimestamp = lineTs;
+                                        usage.LastUpdated = lineTs.ToLocalTime();
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+
+                        var fallbackModel = string.IsNullOrWhiteSpace(currentModel) ? "gpt-5-codex" : currentModel!;
+                        foreach (var ev in fileTokenEvents)
+                        {
+                            var mdl = string.IsNullOrWhiteSpace(ev.Model) ? fallbackModel : ev.Model!;
+                            AccumulateTokenEntry(usage, perModel, ev.Ts, fiveHourCutoff, sevenDayCutoff,
+                                mdl, ev.Input, ev.Cache, ev.Output, ref latestTokenActivity);
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"Codex usage scan failed: {ex.Message}");
+            }
+        }
+
+        FinalizeTokenUsage(usage, perModel, latestTokenActivity);
+        return usage;
+    }
+
+    private static UsageWindowInfo ReadAntigravityUsage(bool isConnected)
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var fiveHourCutoff = nowUtc.AddHours(-5);
+        var sevenDayCutoff = nowUtc.AddDays(-7);
+
+        var usage = new UsageWindowInfo
+        {
+            Source = AgentSource.Antigravity,
             AgentName = "Google Antigravity",
+            IsConnected = isConnected,
+            SupportsRemainingQuota = true,
+            HasQuotaData = false,
             IsTokenMetricMode = true,
-            OfficialQuotaHint = Localization.Strings.Get("UsageAntigravityHint")
+            OfficialQuotaHint = Localization.Strings.Get("UsageAntigravityHint"),
+            Note = Localization.Strings.Get("UsageAntigravityQuotaCloudHint")
         };
 
         var perModel = new Dictionary<string, ModelUsageBreakdown>(StringComparer.OrdinalIgnoreCase);
@@ -1076,54 +1354,24 @@ public sealed class TranscriptDiscovery
                                 var root = doc.RootElement;
                                 if (root.ValueKind != JsonValueKind.Object) continue;
 
-                                if (!root.TryGetProperty("created_at", out var tsEl) || tsEl.ValueKind != JsonValueKind.String)
-                                    continue;
-                                if (!DateTimeOffset.TryParse(tsEl.GetString(), System.Globalization.CultureInfo.InvariantCulture,
-                                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
-                                        out var ts))
-                                    continue;
-
-                                if (ts < sevenDayCutoff) continue;
+                                var ts = TryParseJsonTimestamp(root, "created_at");
+                                if (ts is null || ts.Value < sevenDayCutoff) continue;
 
                                 long input = TryGetInt64(root, "input_tokens");
                                 long cache = TryGetInt64(root, "cache_read_tokens");
                                 long output = TryGetInt64(root, "output_tokens");
-                                long total = input + cache + output;
-                                if (total <= 0) continue;
-
-                                usage.SevenDayTokens.InputTokens += input;
-                                usage.SevenDayTokens.CacheReadTokens += cache;
-                                usage.SevenDayTokens.OutputTokens += output;
-                                usage.SevenDayTokens.RequestCount++;
-
-                                bool inFiveHour = ts >= fiveHourCutoff;
-                                if (inFiveHour)
-                                {
-                                    usage.FiveHourTokens.InputTokens += input;
-                                    usage.FiveHourTokens.CacheReadTokens += cache;
-                                    usage.FiveHourTokens.OutputTokens += output;
-                                    usage.FiveHourTokens.RequestCount++;
-                                }
+                                if (input + cache + output <= 0) continue;
 
                                 var modelName = root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String
                                     ? mEl.GetString()
                                     : null;
-                                if (!string.IsNullOrWhiteSpace(modelName))
+                                if (string.IsNullOrWhiteSpace(modelName))
                                 {
-                                    if (!perModel.TryGetValue(modelName, out var breakdown))
-                                    {
-                                        breakdown = new ModelUsageBreakdown { Model = modelName };
-                                        perModel[modelName] = breakdown;
-                                    }
-                                    breakdown.SevenDayTokens += total;
-                                    if (inFiveHour) breakdown.FiveHourTokens += total;
-                                    breakdown.RequestCount++;
+                                    modelName = "gemini-antigravity";
                                 }
 
-                                if (latestActivity is null || ts > latestActivity)
-                                {
-                                    latestActivity = ts;
-                                }
+                                AccumulateTokenEntry(usage, perModel, ts.Value, fiveHourCutoff, sevenDayCutoff,
+                                    modelName!, input, cache, output, ref latestActivity);
                             }
                             catch { }
                         }
@@ -1137,16 +1385,315 @@ public sealed class TranscriptDiscovery
             }
         }
 
-        if (latestActivity.HasValue && usage.SevenDayTokens.RequestCount > 0)
+        FinalizeTokenUsage(usage, perModel, latestActivity);
+        return usage;
+    }
+
+    private static UsageWindowInfo ReadDeepSeekHarnessUsage(bool isConnected)
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        var fiveHourCutoff = nowUtc.AddHours(-5);
+        var sevenDayCutoff = nowUtc.AddDays(-7);
+        var sevenDayCutoffMs = sevenDayCutoff.ToUnixTimeMilliseconds();
+
+        var usage = new UsageWindowInfo
         {
-            usage.LastUpdated = latestActivity.Value.ToLocalTime();
+            Source = AgentSource.DeepSeekHarness,
+            AgentName = "DeepSeek Harness",
+            IsConnected = isConnected,
+            SupportsRemainingQuota = false,
+            HasQuotaData = false,
+            IsTokenMetricMode = true,
+            OfficialQuotaHint = Localization.Strings.Get("UsageDeepSeekHint")
+        };
+
+        var dir = AgentRegistry.ExpandHomePath("~/.dsh/storages/session_projcache/sessions");
+        var perModel = new Dictionary<string, ModelUsageBreakdown>(StringComparer.OrdinalIgnoreCase);
+        DateTimeOffset? latestActivity = null;
+
+        if (Directory.Exists(dir))
+        {
+            try
+            {
+                foreach (var file in Directory.EnumerateFiles(dir, "*.json", SearchOption.TopDirectoryOnly))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                        if (!doc.RootElement.TryGetProperty("record", out var record) ||
+                            record.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        if (!record.TryGetProperty("identity", out var identity) ||
+                            identity.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        if (identity.TryGetProperty("isSeeded", out var seeded) &&
+                            seeded.ValueKind == JsonValueKind.True)
+                            continue;
+
+                        if (!record.TryGetProperty("rows", out var rows) ||
+                            rows.ValueKind != JsonValueKind.Object)
+                            continue;
+
+                        long? activityMs = null;
+                        if (GetRowValue(rows, "timeContext") is { ValueKind: JsonValueKind.Object } timeContext &&
+                            timeContext.TryGetProperty("lastMessageTime", out var lastMessageEl) &&
+                            lastMessageEl.TryGetInt64(out var lastMessageMs))
+                        {
+                            activityMs = lastMessageMs;
+                        }
+                        if (GetRowValue(rows, "sessionListMetadata") is { ValueKind: JsonValueKind.Object } listMeta &&
+                            listMeta.TryGetProperty("lastPromptAt", out var promptAtEl) &&
+                            promptAtEl.TryGetInt64(out var promptAtMs) &&
+                            (activityMs == null || promptAtMs > activityMs))
+                        {
+                            activityMs = promptAtMs;
+                        }
+
+                        if (activityMs == null || activityMs.Value < sevenDayCutoffMs) continue;
+                        var sessionUpdatedAt = DateTimeOffset.FromUnixTimeMilliseconds(activityMs.Value);
+
+                        string sessionModel = "deepseek-chat";
+                        if (GetRowValue(rows, "modelSelection") is { ValueKind: JsonValueKind.Object } selection &&
+                            selection.TryGetProperty("lastUsed", out var lastUsed) &&
+                            lastUsed.ValueKind == JsonValueKind.Object &&
+                            lastUsed.TryGetProperty("model", out var modelEl) &&
+                            modelEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(modelEl.GetString()))
+                        {
+                            sessionModel = modelEl.GetString()!.Trim();
+                        }
+
+                        bool recordedAnyTurn = false;
+                        if (GetRowValue(rows, "turnOutline") is { ValueKind: JsonValueKind.Object } outline &&
+                            outline.TryGetProperty("turns", out var outlineTurns) &&
+                            outlineTurns.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var turn in outlineTurns.EnumerateArray())
+                            {
+                                if (turn.ValueKind != JsonValueKind.Object) continue;
+
+                                var turnTs = TryParseFlexibleTimestamp(turn, "timestamp", "createdAt", "updatedAt")
+                                             ?? sessionUpdatedAt;
+                                if (turnTs < sevenDayCutoff) continue;
+
+                                var turnModel = turn.TryGetProperty("model", out var tmEl) &&
+                                                tmEl.ValueKind == JsonValueKind.String &&
+                                                !string.IsNullOrWhiteSpace(tmEl.GetString())
+                                    ? tmEl.GetString()!.Trim()
+                                    : sessionModel;
+
+                                var (input, cache, output) = ExtractOrEstimateDshTokens(turn);
+                                if (input + cache + output <= 0) continue;
+
+                                AccumulateTokenEntry(usage, perModel, turnTs, fiveHourCutoff, sevenDayCutoff,
+                                    turnModel, input, cache, output, ref latestActivity);
+                                recordedAnyTurn = true;
+                            }
+                        }
+
+                        if (!recordedAnyTurn &&
+                            GetRowValue(rows, "sessionStats") is { ValueKind: JsonValueKind.Object } stats)
+                        {
+                            var (input, cache, output) = ExtractExplicitTokens(stats);
+                            if (input + cache + output > 0)
+                            {
+                                AccumulateTokenEntry(usage, perModel, sessionUpdatedAt, fiveHourCutoff, sevenDayCutoff,
+                                    sessionModel, input, cache, output, ref latestActivity);
+                            }
+                        }
+                    }
+                    catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn($"DeepSeek Harness usage scan failed: {ex.Message}");
+            }
+        }
+
+        FinalizeTokenUsage(usage, perModel, latestActivity);
+        return usage;
+    }
+
+    private static (long Input, long Cache, long Output) ExtractOrEstimateDshTokens(JsonElement turn)
+    {
+        var (input, cache, output) = ExtractExplicitTokens(turn);
+        if (input + cache + output == 0 &&
+            turn.TryGetProperty("usage", out var usageEl) &&
+            usageEl.ValueKind == JsonValueKind.Object)
+        {
+            (input, cache, output) = ExtractExplicitTokens(usageEl);
+        }
+
+        if (input + cache + output > 0)
+        {
+            return (input, cache, output);
+        }
+
+        var prompt = turn.TryGetProperty("prompt", out var pEl) && pEl.ValueKind == JsonValueKind.String
+            ? pEl.GetString()
+            : null;
+        var response = turn.TryGetProperty("response", out var rEl) && rEl.ValueKind == JsonValueKind.String
+            ? rEl.GetString()
+            : null;
+
+        long estInput = EstimateTokensFromText(prompt);
+        long estOutput = EstimateTokensFromText(response);
+        return (estInput, 0, estOutput);
+    }
+
+    private static (long Input, long Cache, long Output) ExtractExplicitTokens(JsonElement obj)
+    {
+        long input = TryGetInt64(obj, "inputTokens")
+                     + TryGetInt64(obj, "promptTokens")
+                     + TryGetInt64(obj, "input_tokens")
+                     + TryGetInt64(obj, "prompt_tokens");
+        long cache = TryGetInt64(obj, "cacheTokens")
+                     + TryGetInt64(obj, "cachedTokens")
+                     + TryGetInt64(obj, "cache_read_tokens")
+                     + TryGetInt64(obj, "cache_read_input_tokens")
+                     + TryGetInt64(obj, "cached_input_tokens");
+        long output = TryGetInt64(obj, "outputTokens")
+                      + TryGetInt64(obj, "completionTokens")
+                      + TryGetInt64(obj, "output_tokens")
+                      + TryGetInt64(obj, "completion_tokens");
+        return (input, cache, output);
+    }
+
+    internal static long EstimateTokensFromText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return 0;
+        long cjkCount = 0;
+        long otherChars = 0;
+        foreach (var ch in text)
+        {
+            if (char.IsWhiteSpace(ch)) continue;
+            if ((ch >= '\u4E00' && ch <= '\u9FFF') ||
+                (ch >= '\u3400' && ch <= '\u4DBF') ||
+                (ch >= '\u3000' && ch <= '\u303F') ||
+                (ch >= '\uFF00' && ch <= '\uFFEF'))
+            {
+                cjkCount++;
+            }
+            else
+            {
+                otherChars++;
+            }
+        }
+        long otherTokens = otherChars > 0 ? Math.Max(1, (otherChars + 3) / 4) : 0;
+        return cjkCount + otherTokens;
+    }
+
+    private static void AccumulateTokenEntry(
+        UsageWindowInfo usage,
+        Dictionary<string, ModelUsageBreakdown> perModel,
+        DateTimeOffset ts,
+        DateTimeOffset fiveHourCutoff,
+        DateTimeOffset sevenDayCutoff,
+        string modelName,
+        long input,
+        long cache,
+        long output,
+        ref DateTimeOffset? latestActivity)
+    {
+        if (ts < sevenDayCutoff) return;
+        long total = input + cache + output;
+        if (total <= 0) return;
+
+        usage.SevenDayTokens.InputTokens += input;
+        usage.SevenDayTokens.CacheReadTokens += cache;
+        usage.SevenDayTokens.OutputTokens += output;
+        usage.SevenDayTokens.RequestCount++;
+
+        bool inFiveHour = ts >= fiveHourCutoff;
+        if (inFiveHour)
+        {
+            usage.FiveHourTokens.InputTokens += input;
+            usage.FiveHourTokens.CacheReadTokens += cache;
+            usage.FiveHourTokens.OutputTokens += output;
+            usage.FiveHourTokens.RequestCount++;
+        }
+
+        if (!string.IsNullOrWhiteSpace(modelName))
+        {
+            if (!perModel.TryGetValue(modelName, out var breakdown))
+            {
+                breakdown = new ModelUsageBreakdown { Model = modelName };
+                perModel[modelName] = breakdown;
+            }
+            breakdown.SevenDayTokens += total;
+            if (inFiveHour) breakdown.FiveHourTokens += total;
+            breakdown.RequestCount++;
+        }
+
+        if (latestActivity is null || ts > latestActivity)
+        {
+            latestActivity = ts;
+        }
+    }
+
+    private static void FinalizeTokenUsage(
+        UsageWindowInfo usage,
+        Dictionary<string, ModelUsageBreakdown> perModel,
+        DateTimeOffset? latestTokenActivity)
+    {
+        if (perModel.Count > 0)
+        {
             usage.TopModels = perModel.Values
                 .OrderByDescending(m => m.SevenDayTokens)
-                .Take(4)
+                .ThenByDescending(m => m.RequestCount)
+                .Take(6)
                 .ToList();
         }
 
-        return usage;
+        if (latestTokenActivity.HasValue)
+        {
+            var localTs = latestTokenActivity.Value.ToLocalTime();
+            if (!usage.LastUpdated.HasValue || localTs > usage.LastUpdated.Value)
+            {
+                usage.LastUpdated = localTs;
+            }
+        }
+    }
+
+    private static DateTimeOffset? TryParseJsonTimestamp(JsonElement obj, string propertyName)
+    {
+        if (!obj.TryGetProperty(propertyName, out var el)) return null;
+        if (el.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(el.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return parsed;
+        }
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt64(out var rawNum) && rawNum > 0)
+        {
+            return FromUnixTimestamp(rawNum);
+        }
+        return null;
+    }
+
+    private static DateTimeOffset? TryParseFlexibleTimestamp(JsonElement obj, params string[] propertyNames)
+    {
+        foreach (var prop in propertyNames)
+        {
+            var ts = TryParseJsonTimestamp(obj, prop);
+            if (ts.HasValue) return ts;
+        }
+        return null;
+    }
+
+    private static string? TryGetResetString(JsonElement windowObj)
+    {
+        if (!windowObj.TryGetProperty("resets_at", out var r)) return null;
+        if (r.ValueKind == JsonValueKind.String) return r.GetString();
+        if (r.ValueKind == JsonValueKind.Number && r.TryGetInt64(out var unix) && unix > 0)
+        {
+            return FromUnixTimestamp(unix).ToString("O");
+        }
+        return null;
     }
 
     private static long TryGetInt64(JsonElement obj, string propertyName)

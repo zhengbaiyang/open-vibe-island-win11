@@ -148,7 +148,11 @@ public sealed class ModelUsageBreakdown
 
 public sealed class UsageWindowInfo
 {
+    public AgentSource Source { get; set; } = AgentSource.Unknown;
     public string AgentName { get; set; } = "";
+    public bool IsConnected { get; set; }
+    public bool SupportsRemainingQuota { get; set; } = true;
+    public bool HasQuotaData { get; set; }
     public double FiveHourPercent { get; set; }
     public string? FiveHourResetText { get; set; }
     public double SevenDayPercent { get; set; }
@@ -156,9 +160,21 @@ public sealed class UsageWindowInfo
     public DateTimeOffset? LastUpdated { get; set; }
     public string? Note { get; set; }
 
+    [JsonIgnore]
+    public double FiveHourRemainingPercent => Math.Clamp(100.0 - FiveHourPercent, 0.0, 100.0);
+
+    [JsonIgnore]
+    public double SevenDayRemainingPercent => Math.Clamp(100.0 - SevenDayPercent, 0.0, 100.0);
+
+    [JsonIgnore]
+    public bool HasTokenData =>
+        SevenDayTokens.RequestCount > 0 ||
+        FiveHourTokens.RequestCount > 0 ||
+        SevenDayTokens.TotalTokens > 0 ||
+        FiveHourTokens.TotalTokens > 0;
+
     /// <summary>
-    /// When true (e.g. Google Antigravity), the platform does not expose server-side
-    /// percentage quota locally; display local 5h/7d token consumption windows instead.
+    /// Legacy compatibility flag; unified usage cards now check SupportsRemainingQuota / HasQuotaData.
     /// </summary>
     public bool IsTokenMetricMode { get; set; }
     public UsageTokenWindow FiveHourTokens { get; set; } = new();
