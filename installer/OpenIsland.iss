@@ -3,15 +3,15 @@
 ;
 ;  Build with:  .\scripts\package.ps1
 ;  Command line defines (optional):
-;    /DAppVersion=0.1.4  /DAppDisplayVersion=0.1.4
+;    /DAppVersion=0.1.5  /DAppDisplayVersion=0.1.5
 ;    /DSourceDir=...       /DOutputDir=...
 ; ============================================================================
 
 #ifndef AppVersion
-  #define AppVersion "0.1.4"
+  #define AppVersion "0.1.5"
 #endif
 #ifndef AppDisplayVersion
-  #define AppDisplayVersion "0.1.4"
+  #define AppDisplayVersion "0.1.5"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\artifacts\publish\win-x64"

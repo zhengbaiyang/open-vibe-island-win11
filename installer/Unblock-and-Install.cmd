@@ -4,7 +4,7 @@ setlocal EnableExtensions
 cd /d "%~dp0"
 
 echo.
-echo   Open Island 0.1.4  -  安装助手
+echo   Open Island 0.1.5  -  安装助手
 echo   ==================================================
 echo   本助手会：
 echo     1. 解除当前文件夹内文件的“网络下载锁定”（Unblock-File）
@@ -44,7 +44,7 @@ if not defined OITEMP (
     echo   请手动选择一个可写目录（例如 D:\Temp），然后在命令提示符中执行：
     echo       set TEMP=D:\Temp
     echo       set TMP=D:\Temp
-    echo       OpenIsland-Setup-0.1.4-win-x64.exe
+    echo       OpenIsland-Setup-0.1.5-win-x64.exe
     echo   或直接使用便携版 ZIP（无需安装器临时目录）。
     pause
     exit /b 1

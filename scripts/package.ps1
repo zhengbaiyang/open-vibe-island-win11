@@ -54,6 +54,7 @@ param(
     [string]$DisplayVersion = "",
     [switch]$SkipPublish,
     [switch]$PortableZip,
+    [switch]$NoRestore,
     [switch]$Sign,
     [string]$PfxPath = "",
     [string]$PfxPassword = "",
@@ -179,14 +180,18 @@ if (-not $SkipPublish) {
     )
     foreach ($project in $projects) {
         Write-Host "  -> $project"
-        & dotnet publish (Join-Path $Root $project) `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false `
-            "-p:Version=$Version" `
-            "-p:FileVersion=$FourPartVersion" `
-            "-p:AssemblyVersion=$FourPartVersion" `
-            "-p:InformationalVersion=$InformationalVersion" `
-            -o $Stage -v q
+        $publishArgs = @(
+            (Join-Path $Root $project),
+            "-c", "Release", "-r", "win-x64", "--self-contained", "true",
+            "-p:PublishSingleFile=false", "-p:DebugType=None", "-p:DebugSymbols=false",
+            "-p:Version=$Version",
+            "-p:FileVersion=$FourPartVersion",
+            "-p:AssemblyVersion=$FourPartVersion",
+            "-p:InformationalVersion=$InformationalVersion",
+            "-o", $Stage, "-v", "q"
+        )
+        if ($NoRestore) { $publishArgs += @("--no-restore", "-m:1", "-nr:false") }
+        & dotnet publish @publishArgs
         if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed for $project" }
     }
 
@@ -274,8 +279,14 @@ if ($PortableZip) {
 Write-Step "Creating SmartScreen helper package"
 $helperCmd = Join-Path $InstallerDir "Unblock-and-Install.cmd"
 $helperTxt = Join-Path $InstallerDir "SMARTSCREEN-说明.txt"
-if (Test-Path $helperCmd) { Copy-Item $helperCmd $Dist -Force }
-if (Test-Path $helperTxt) { Copy-Item $helperTxt (Join-Path $Dist "README-SmartScreen.txt") -Force }
+if (Test-Path $helperCmd) {
+    $cmdContent = (Get-Content -Path $helperCmd -Raw -Encoding UTF8) -replace '\d+\.\d+\.\d+', $Version
+    Set-Content -Path (Join-Path $Dist "Unblock-and-Install.cmd") -Value $cmdContent -Encoding UTF8
+}
+if (Test-Path $helperTxt) {
+    $txtContent = (Get-Content -Path $helperTxt -Raw -Encoding UTF8) -replace '\d+\.\d+\.\d+', $Version
+    Set-Content -Path (Join-Path $Dist "README-SmartScreen.txt") -Value $txtContent -Encoding UTF8
+}
 
 # Never ship a certificate: builds are unsigned unless the user provides a real one.
 $staleCert = Join-Path $Dist "OpenIsland-CodeSigning.cer"

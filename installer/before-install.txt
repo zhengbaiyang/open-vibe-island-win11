@@ -3,7 +3,7 @@ Open Island for Windows 11  —  安装说明 / Installation notes
 
 本安装包会安装：
   • 灵动岛主程序（OpenIsland.exe，自包含，无需预装 .NET 运行时）
-  • Hook 命令行（OpenIslandHooks.exe，供 Claude Code / Codex / Gemini / Cursor 等 Agent 调用）
+  • Hook 命令行（OpenIslandHooks.exe，供 Claude Code / Codex / Google Antigravity / Gemini / Cursor 等 Agent 调用）
   • 安装器 CLI（OpenIslandSetup.exe，可在命令行管理各 Agent 的 Hook）
   • 全部 Agent 插件（plugins\，含 OpenCode / Pi / Claude 用量状态栏脚本）
 
@@ -26,4 +26,5 @@ Open Island for Windows 11  —  安装说明 / Installation notes
   设置 → 连接状态 → 打开日志
 
 许可证：GNU General Public License v3.0
+项目仓库：https://github.com/zhengbaiyang/open-vibe-island-win11
 上游项目：https://github.com/Octane0411/open-vibe-island

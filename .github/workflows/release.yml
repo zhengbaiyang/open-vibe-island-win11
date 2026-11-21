@@ -87,21 +87,29 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - name: Install Inno Setup 6
+      - name: Ensure Inno Setup 6
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          choco upgrade innosetup --no-progress -y
 
-          $candidates = @(
-            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-            "C:\Program Files\Inno Setup 6\ISCC.exe",
-            (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
-          )
-          $isccCmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-          if ($isccCmd -and $isccCmd.Source) { $candidates += $isccCmd.Source }
+          function Find-Iscc {
+            $candidates = @(
+              "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+              "C:\Program Files\Inno Setup 6\ISCC.exe",
+              (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
+            )
+            $isccCmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($isccCmd -and $isccCmd.Source) { $candidates += $isccCmd.Source }
+            return ($candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1)
+          }
 
-          $iscc = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          $iscc = Find-Iscc
+          if (-not $iscc) {
+            Write-Host "ISCC.exe not pre-installed; installing via Chocolatey..."
+            choco install innosetup --no-progress -y
+            $iscc = Find-Iscc
+          }
+
           if (-not $iscc) {
             throw "Inno Setup compiler (ISCC.exe) not found after installation."
           }
