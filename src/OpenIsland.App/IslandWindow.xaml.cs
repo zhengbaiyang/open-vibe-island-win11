@@ -45,11 +45,15 @@ public partial class IslandWindow : Window
     private readonly DispatcherTimer _collapseTimer;
     private bool _isExpanded;
     private bool _pinnedOpen;
+    private bool _suppressHoverExpandUntilLeave;
     private bool _surfaceSizeAnimating;
     private double _compactSurfaceWidth;
     private double _compactSurfaceHeight;
     private HwndSource? _hwndSource;
     private string _lastSessionSignature = "";
+    private string _lastActionCardsSignature = "";
+    private string _lastCompletionCardsSignature = "";
+    private readonly HashSet<string> _seenActionCardIds = new(StringComparer.OrdinalIgnoreCase);
 
     // --- Auto-hide (tuck into the screen edge when idle) -----------------
     private const double HiddenStripHeight = 5;
@@ -236,6 +240,9 @@ public partial class IslandWindow : Window
         SettingsBtn.ToolTip = Strings.Get("Settings");
         CompactRefreshBtn.ToolTip = Strings.Get("Refresh");
         CompactSettingsBtn.ToolTip = Strings.Get("Settings");
+        // Re-render card copy cleanly if the UI language changed, without re-triggering entry fade.
+        _lastActionCardsSignature = "";
+        _lastCompletionCardsSignature = "";
         RepositionWindow();
         ConfigureAutoHide();
         RenderState();
@@ -475,6 +482,7 @@ public partial class IslandWindow : Window
     {
         if (_isExpanded == expanded)
         {
+            UpdateHeaderPinAndChevronState();
             if (expanded) EnsureExpandedHeight();
             return;
         }
@@ -511,6 +519,7 @@ public partial class IslandWindow : Window
         double fromHeight = PillSurface.ActualHeight > 0 ? PillSurface.ActualHeight : _compactSurfaceHeight;
 
         AnimateChevron(180, animate);
+        UpdateHeaderPinAndChevronState();
 
         if (!animate)
         {
@@ -551,6 +560,7 @@ public partial class IslandWindow : Window
     {
         StopSurfaceAnimations();
         AnimateChevron(0, animate);
+        UpdateHeaderPinAndChevronState();
 
         if (!animate)
         {
@@ -681,7 +691,7 @@ public partial class IslandWindow : Window
     private void Window_MouseEnter(object sender, MouseEventArgs e)
     {
         _collapseTimer.Stop();
-        if (!_isExpanded)
+        if (!_isExpanded && !_suppressHoverExpandUntilLeave)
         {
             SetExpanded(true, animate: true);
         }
@@ -690,28 +700,108 @@ public partial class IslandWindow : Window
 
     private void Window_MouseLeave(object sender, MouseEventArgs e)
     {
+        _suppressHoverExpandUntilLeave = false;
         AnimateHover(1.0);
         if (!_pinnedOpen) _collapseTimer.Start();
+    }
+
+    private void PinToggleBadge_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        _pinnedOpen = !_pinnedOpen;
+        if (_pinnedOpen)
+        {
+            _suppressHoverExpandUntilLeave = false;
+            _collapseTimer.Stop();
+            if (!_isExpanded) SetExpanded(true, animate: true);
+        }
+        UpdateHeaderPinAndChevronState();
+        e.Handled = true;
+    }
+
+    private void ChevronBtn_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isExpanded)
+        {
+            _suppressHoverExpandUntilLeave = false;
+            _pinnedOpen = true;
+            SetExpanded(true, animate: true);
+        }
+        else
+        {
+            // Explicitly clicking the top-right arrow always unpins and collapses immediately,
+            // even while the mouse is still hovering over the header.
+            _pinnedOpen = false;
+            _suppressHoverExpandUntilLeave = true;
+            _collapseTimer.Stop();
+            SetExpanded(false, animate: true);
+        }
+        UpdateHeaderPinAndChevronState();
+        e.Handled = true;
     }
 
     private void CompactHeader_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         if (!_isExpanded)
         {
+            _suppressHoverExpandUntilLeave = false;
             _pinnedOpen = true;
             SetExpanded(true, animate: true);
         }
         else if (_pinnedOpen)
         {
             _pinnedOpen = false;
-            if (!IsMouseOver) SetExpanded(false, animate: true);
+            _suppressHoverExpandUntilLeave = true;
+            _collapseTimer.Stop();
+            SetExpanded(false, animate: true);
         }
         else
         {
-            // Hover-opened: a click pins it open instead of collapsing it.
+            // Hover-opened: clicking the header pins it open and lights up the pinned indicator.
             _pinnedOpen = true;
         }
+        UpdateHeaderPinAndChevronState();
         e.Handled = true;
+    }
+
+    private void UpdateHeaderPinAndChevronState()
+    {
+        if (PinToggleBadge is null || Chevron is null || ChevronBtn is null) return;
+
+        PinToggleBadge.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
+        if (_pinnedOpen)
+        {
+            PinToggleBadge.Background = B("#286EA7FF");
+            PinToggleBadge.BorderBrush = B("#786EA7FF");
+            PinStatusDot.Fill = B("#7FC9FF");
+            PinStatusText.Text = Strings.Get("PinnedLabel");
+            PinStatusText.Foreground = B("#CBE6FF");
+            PinToggleBadge.ToolTip = Strings.Get("UnpinToolTip");
+            Chevron.Stroke = B("#8CC2FF");
+            ChevronBtn.Background = B("#166EA7FF");
+        }
+        else
+        {
+            PinToggleBadge.Background = B("#0FFFFFFF");
+            PinToggleBadge.BorderBrush = B("#1FFFFFFF");
+            PinStatusDot.Fill = B("#6F7B8F");
+            PinStatusText.Text = Strings.Get("UnpinnedLabel");
+            PinStatusText.Foreground = B("#8A95A6");
+            PinToggleBadge.ToolTip = Strings.Get("PinToolTip");
+            Chevron.Stroke = B("#8A95A6");
+            ChevronBtn.Background = Brushes.Transparent;
+        }
+
+        ChevronBtn.ToolTip = Strings.Get(_isExpanded ? "CollapseToolTip" : "ExpandPinToolTip");
+    }
+
+    private void JumpAndCollapse(AgentSession session)
+    {
+        TerminalJump(session);
+        _pinnedOpen = false;
+        _suppressHoverExpandUntilLeave = true;
+        _collapseTimer.Stop();
+        if (_isExpanded) SetExpanded(false, animate: true);
+        UpdateHeaderPinAndChevronState();
     }
 
     private void AnimateHover(double target)
@@ -803,20 +893,58 @@ public partial class IslandWindow : Window
         EmptyTitle.Text = Strings.Get("NoSessionsTitle");
         EmptyHint.Text = Strings.Get("NoSessionsHint");
         SessionCountText.Text = sessions.Count.ToString();
+        UpdateHeaderPinAndChevronState();
 
         // ---- Action cards (approvals + HITL questions) ---------------------
-        ActionCardsHost.Children.Clear();
+        // Diff by RequestId signature so periodic discovery polls never destroy & re-animate
+        // (flash) existing cards or clear the user's in-progress multi-select state.
+        var activeCardIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var actionSigParts = new List<string>();
         foreach (var s in sessions)
         {
-            if (s.PendingApproval != null) ActionCardsHost.Children.Add(BuildApprovalCard(s, s.PendingApproval));
-            if (s.PendingQuestion != null) ActionCardsHost.Children.Add(BuildQuestionCard(s, s.PendingQuestion));
+            if (s.PendingApproval != null)
+            {
+                activeCardIds.Add(s.PendingApproval.RequestId);
+                actionSigParts.Add($"A:{s.SessionId}:{s.PendingApproval.RequestId}:{s.PendingApproval.IsBlocking}:{s.PendingApproval.Options.Count}");
+            }
+            if (s.PendingQuestion != null)
+            {
+                activeCardIds.Add(s.PendingQuestion.RequestId);
+                actionSigParts.Add($"Q:{s.SessionId}:{s.PendingQuestion.RequestId}:{s.PendingQuestion.IsBlocking}:{s.PendingQuestion.Questions.Count}");
+            }
+        }
+        var actionSignature = string.Join("|", actionSigParts);
+        if (actionSignature != _lastActionCardsSignature)
+        {
+            _lastActionCardsSignature = actionSignature;
+            ActionCardsHost.Children.Clear();
+            foreach (var s in sessions)
+            {
+                if (s.PendingApproval != null)
+                {
+                    bool animateIn = _seenActionCardIds.Add(s.PendingApproval.RequestId);
+                    ActionCardsHost.Children.Add(BuildApprovalCard(s, s.PendingApproval, animateIn));
+                }
+                if (s.PendingQuestion != null)
+                {
+                    bool animateIn = _seenActionCardIds.Add(s.PendingQuestion.RequestId);
+                    ActionCardsHost.Children.Add(BuildQuestionCard(s, s.PendingQuestion, animateIn));
+                }
+            }
+            _seenActionCardIds.RemoveWhere(id => !activeCardIds.Contains(id));
         }
 
         // ---- Completion cards ---------------------------------------------
-        CompletionCardsHost.Children.Clear();
-        foreach (var card in completions.Take(2))
+        var visibleCompletions = completions.Take(2).ToList();
+        var completionSignature = string.Join("|", visibleCompletions.Select(c => c.Id));
+        if (completionSignature != _lastCompletionCardsSignature)
         {
-            CompletionCardsHost.Children.Add(BuildCompletionCard(card));
+            _lastCompletionCardsSignature = completionSignature;
+            CompletionCardsHost.Children.Clear();
+            foreach (var card in visibleCompletions)
+            {
+                CompletionCardsHost.Children.Add(BuildCompletionCard(card));
+            }
         }
 
         // ---- Session rows / empty state ------------------------------------
@@ -850,7 +978,7 @@ public partial class IslandWindow : Window
     // Cards
     // ---------------------------------------------------------------------
 
-    private UIElement BuildApprovalCard(AgentSession session, PendingApprovalRequest req)
+    private UIElement BuildApprovalCard(AgentSession session, PendingApprovalRequest req, bool animateIn = true)
     {
         var meta = AgentRegistry.Get(req.Source);
         var card = new Border
@@ -864,17 +992,25 @@ public partial class IslandWindow : Window
         };
         var stack = new StackPanel();
 
-        var header = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        header.Children.Add(IconPath("IconAlert", 13, "#F4A4A4", margin: new Thickness(0, 0, 7, 0)));
+        var header = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        header.Children.Add(IconPath("IconAlert", 13, "#F4A4A4", margin: new Thickness(0, 0, 7, 3)));
         header.Children.Add(new TextBlock
         {
             Text = $"{meta.DisplayName} · {Strings.Get("ApproveHint")}",
             Foreground = B("#FFDCDC"),
             FontWeight = FontWeights.SemiBold,
             FontSize = 12,
+            Margin = new Thickness(0, 0, 8, 3),
             VerticalAlignment = VerticalAlignment.Center
         });
-        header.Children.Add(Chip(req.ToolName, "#FFD9D9", "#24F4A4A4", new Thickness(8, 0, 0, 0)));
+        if (!string.IsNullOrWhiteSpace(req.ToolName))
+        {
+            header.Children.Add(Chip(req.ToolName, "#FFD9D9", "#24F4A4A4", new Thickness(0, 0, 6, 3)));
+        }
+        if (!req.IsBlocking)
+        {
+            header.Children.Add(Chip(Strings.Get("ActionInAppBadge"), "#FFD58A", "#22FFD58A", new Thickness(0, 0, 6, 3)));
+        }
         stack.Children.Add(header);
 
         if (!string.IsNullOrWhiteSpace(req.Summary))
@@ -911,7 +1047,7 @@ public partial class IslandWindow : Window
             });
         }
 
-        if (req.Options.Count > 0)
+        if (req.Options.Count > 0 && req.IsBlocking)
         {
             var optsList = new StackPanel { Margin = new Thickness(0, 6, 0, 2) };
             for (int i = 0; i < req.Options.Count; i++)
@@ -994,19 +1130,24 @@ public partial class IslandWindow : Window
                 optCard.MouseLeftButtonUp += (_, e) =>
                 {
                     e.Handled = true;
-                    if (req.IsBlocking)
-                    {
-                        _app.Bridge.ResolveApproval(req, allow: !isDenyOpt, reason: displayLabel);
-                        AfterApprovalResolved();
-                    }
-                    else
-                    {
-                        TerminalJump(session);
-                    }
+                    _app.Bridge.ResolveApproval(req, allow: !isDenyOpt, reason: displayLabel);
+                    AfterApprovalResolved();
                 };
                 optsList.Children.Add(optCard);
             }
             stack.Children.Add(optsList);
+        }
+        else if (req.Options.Count > 0 && !req.IsBlocking)
+        {
+            // Observational approval: display available host-app actions as non-interactive preview chips
+            // so users see what awaits in the client without mistaking them for remote-approve buttons.
+            var previewWrap = new WrapPanel { Margin = new Thickness(0, 6, 0, 2) };
+            foreach (var opt in req.Options)
+            {
+                var (displayLabel, _) = StripRecommendedPrefix(opt.Label);
+                previewWrap.Children.Add(Chip(displayLabel, "#C9D3E2", "#14FFFFFF", new Thickness(0, 0, 6, 4)));
+            }
+            stack.Children.Add(previewWrap);
         }
 
         if (req.IsBlocking)
@@ -1047,7 +1188,7 @@ public partial class IslandWindow : Window
                 Style = (Style)FindResource("PillButton"),
                 Padding = new Thickness(11, 5, 11, 5)
             };
-            jumpBtn.Click += (_, _) => TerminalJump(session);
+            jumpBtn.Click += (_, _) => JumpAndCollapse(session);
 
             buttons.Children.Add(allowBtn);
             buttons.Children.Add(denyBtn);
@@ -1056,7 +1197,7 @@ public partial class IslandWindow : Window
         }
         else
         {
-            var footer = new Grid { Margin = new Thickness(0, 5, 0, 0) };
+            var footer = new Grid { Margin = new Thickness(0, 6, 0, 0) };
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1080,7 +1221,7 @@ public partial class IslandWindow : Window
                 Padding = new Thickness(11, 5, 11, 5),
                 Margin = new Thickness(0, 0, 6, 0)
             };
-            openBtn.Click += (_, _) => TerminalJump(session);
+            openBtn.Click += (_, _) => JumpAndCollapse(session);
 
             var dismissBtn = new Button
             {
@@ -1102,7 +1243,7 @@ public partial class IslandWindow : Window
         }
 
         card.Child = stack;
-        AnimateCardIn(card);
+        if (animateIn) AnimateCardIn(card);
         return card;
     }
 
@@ -1122,7 +1263,7 @@ public partial class IslandWindow : Window
         RenderState();
     }
 
-    private UIElement BuildQuestionCard(AgentSession session, PendingQuestionRequest req)
+    private UIElement BuildQuestionCard(AgentSession session, PendingQuestionRequest req, bool animateIn = true)
     {
         var meta = AgentRegistry.Get(req.Source);
         var questions = req.Questions.Count > 0
@@ -1149,20 +1290,25 @@ public partial class IslandWindow : Window
             ? $"{meta.DisplayName} · {firstQ.Header}"
             : $"{meta.DisplayName} · {Strings.Get("QuestionHint")}";
 
-        var header = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        header.Children.Add(IconPath("IconQuestion", 13, "#7FC9FF", margin: new Thickness(0, 0, 7, 0)));
+        var header = new WrapPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        header.Children.Add(IconPath("IconQuestion", 13, "#7FC9FF", margin: new Thickness(0, 0, 7, 3)));
         header.Children.Add(new TextBlock
         {
             Text = headerText,
             Foreground = B("#CBE6FF"),
             FontWeight = FontWeights.SemiBold,
             FontSize = 12,
+            Margin = new Thickness(0, 0, 8, 3),
             VerticalAlignment = VerticalAlignment.Center
         });
         if (questions.Any(q => q.Options.Count > 0))
         {
             var modeKey = firstQ.MultiSelect ? "MultiSelectBadge" : "SingleSelectBadge";
-            header.Children.Add(Chip(Strings.Get(modeKey), "#7FC9FF", "#2238BDF8", new Thickness(8, 0, 0, 0)));
+            header.Children.Add(Chip(Strings.Get(modeKey), "#7FC9FF", "#2238BDF8", new Thickness(0, 0, 6, 3)));
+        }
+        if (!req.IsBlocking)
+        {
+            header.Children.Add(Chip(Strings.Get("SelectInAppBadge"), "#FFD58A", "#22FFD58A", new Thickness(0, 0, 6, 3)));
         }
         stack.Children.Add(header);
 
@@ -1309,8 +1455,8 @@ public partial class IslandWindow : Window
                         if (!req.IsBlocking)
                         {
                             // Observational question (e.g. Google Antigravity ask_question / /grill-me, Codex rollout, DSH):
-                            // jump straight to the host app so the user can click their choice there.
-                            TerminalJump(session);
+                            // focus the host app AND collapse the island out of the way so the user can click directly there.
+                            JumpAndCollapse(session);
                             return;
                         }
 
@@ -1436,7 +1582,7 @@ public partial class IslandWindow : Window
                 Padding = new Thickness(11, 5, 11, 5),
                 Margin = new Thickness(0, 0, 6, 0)
             };
-            openBtn.Click += (_, _) => TerminalJump(session);
+            openBtn.Click += (_, _) => JumpAndCollapse(session);
 
             var dismissBtn = new Button
             {
@@ -1458,7 +1604,7 @@ public partial class IslandWindow : Window
         }
 
         card.Child = stack;
-        AnimateCardIn(card);
+        if (animateIn) AnimateCardIn(card);
         return card;
     }
 

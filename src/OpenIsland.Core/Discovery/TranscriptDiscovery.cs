@@ -1163,6 +1163,15 @@ public sealed class TranscriptDiscovery
                         var effectiveApproval = pendingApproval ?? pendingPlanFeedback;
 
                         var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
+                        // Antigravity writes PLANNER_RESPONSE before evaluating auto-approve rules or rendering
+                        // its own permission UI. Require a brief settle window for BypassSandbox commands so
+                        // Open Island never jumps ahead of Antigravity or false-alarms on auto-approved commands.
+                        if (effectiveApproval != null &&
+                            effectiveApproval.RequestId.StartsWith("aga-", StringComparison.OrdinalIgnoreCase) &&
+                            idleSeconds < 4.0)
+                        {
+                            effectiveApproval = null;
+                        }
                         if (idleSeconds >= 1800)
                         {
                             // Avoid surfacing abandoned questions/approvals older than 30 minutes.

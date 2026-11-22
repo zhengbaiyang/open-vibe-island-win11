@@ -544,6 +544,7 @@ public sealed class SessionStateReducer
     {
         PendingQuestionRequest? newlyDiscoveredQuestion = null;
         PendingApprovalRequest? newlyDiscoveredApproval = null;
+        bool changed = false;
 
         lock (_lock)
         {
@@ -578,13 +579,25 @@ public sealed class SessionStateReducer
             {
                 // Preserve pending approval/question controls and hook-managed liveness
                 if (string.IsNullOrWhiteSpace(existing.Title) && !string.IsNullOrWhiteSpace(discovered.Title))
+                {
                     existing.Title = discovered.Title;
+                    changed = true;
+                }
                 if (string.IsNullOrWhiteSpace(existing.Cwd) && !string.IsNullOrWhiteSpace(discovered.Cwd))
+                {
                     existing.Cwd = discovered.Cwd;
+                    changed = true;
+                }
                 if (string.IsNullOrWhiteSpace(existing.Model) && !string.IsNullOrWhiteSpace(discovered.Model))
+                {
                     existing.Model = discovered.Model;
+                    changed = true;
+                }
                 if (string.IsNullOrWhiteSpace(existing.Terminal.DeepLinkUrl) && !string.IsNullOrWhiteSpace(discovered.Terminal.DeepLinkUrl))
+                {
                     existing.Terminal.DeepLinkUrl = discovered.Terminal.DeepLinkUrl;
+                    changed = true;
+                }
 
                 // Sync observational transcript-discovered questions across all platforms
                 // even when the session also receives observational lifecycle hooks (IsHookManaged == true).
@@ -600,6 +613,7 @@ public sealed class SessionStateReducer
                         existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
                         existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
                         newlyDiscoveredQuestion = discovered.PendingQuestion;
+                        changed = true;
                     }
                 }
                 else if (existing.PendingQuestion != null &&
@@ -612,6 +626,7 @@ public sealed class SessionStateReducer
                     existing.Phase = existing.PendingApproval != null ? SessionPhase.WaitingForApproval : discovered.Phase;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
                     if (discovered.UpdatedAt > existing.UpdatedAt) existing.UpdatedAt = discovered.UpdatedAt;
+                    changed = true;
                 }
 
                 // Sync observational transcript-discovered approvals (Antigravity BypassSandbox / Plan Proceed / notify_user,
@@ -631,6 +646,7 @@ public sealed class SessionStateReducer
                         existing.StatusSummary = discovered.StatusSummary ?? discovered.PendingApproval.Summary;
                         existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
                         newlyDiscoveredApproval = discovered.PendingApproval;
+                        changed = true;
                     }
                 }
                 else if (existing.PendingApproval != null &&
@@ -643,6 +659,7 @@ public sealed class SessionStateReducer
                     existing.Phase = existing.PendingQuestion != null ? SessionPhase.WaitingForAnswer : discovered.Phase;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
                     if (discovered.UpdatedAt > existing.UpdatedAt) existing.UpdatedAt = discovered.UpdatedAt;
+                    changed = true;
                 }
 
                 if (!existing.IsHookManaged && discovered.UpdatedAt > existing.UpdatedAt)
@@ -658,6 +675,7 @@ public sealed class SessionStateReducer
                     {
                         existing.Phase = discovered.Phase;
                     }
+                    changed = true;
                 }
                 else if (!existing.IsHookManaged && existing.Phase == SessionPhase.Running && discovered.Phase != SessionPhase.Running)
                 {
@@ -666,6 +684,7 @@ public sealed class SessionStateReducer
                         existing.Phase = discovered.Phase;
                         existing.ActiveToolName = discovered.ActiveToolName;
                         existing.ActiveToolPreview = discovered.ActiveToolPreview;
+                        changed = true;
                     }
                 }
 
@@ -682,6 +701,7 @@ public sealed class SessionStateReducer
                     existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
                     existing.LastPrompt = discovered.LastPrompt ?? existing.LastPrompt;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
+                    changed = true;
                 }
             }
             else
@@ -706,16 +726,22 @@ public sealed class SessionStateReducer
                                 coalesced.Cwd = discovered.Cwd;
                             if (!string.IsNullOrWhiteSpace(discovered.Model) && string.IsNullOrWhiteSpace(coalesced.Model))
                                 coalesced.Model = discovered.Model;
+                            changed = true;
                         }
                         // Prefer the newest deep link so clicking opens the latest run.
-                        if (!string.IsNullOrWhiteSpace(discovered.Terminal.DeepLinkUrl))
+                        if (!string.IsNullOrWhiteSpace(discovered.Terminal.DeepLinkUrl) &&
+                            !string.Equals(coalesced.Terminal.DeepLinkUrl, discovered.Terminal.DeepLinkUrl, StringComparison.OrdinalIgnoreCase))
+                        {
                             coalesced.Terminal.DeepLinkUrl = discovered.Terminal.DeepLinkUrl;
-                        StateChanged?.Invoke();
+                            changed = true;
+                        }
+                        if (changed) StateChanged?.Invoke();
                         return;
                     }
                 }
 
                 _sessions[discovered.SessionId] = discovered;
+                changed = true;
                 if (discovered.PendingQuestion != null)
                 {
                     newlyDiscoveredQuestion = discovered.PendingQuestion;
@@ -727,7 +753,7 @@ public sealed class SessionStateReducer
             }
         }
 
-        StateChanged?.Invoke();
+        if (changed) StateChanged?.Invoke();
         if (newlyDiscoveredQuestion != null)
         {
             QuestionRequested?.Invoke(newlyDiscoveredQuestion);

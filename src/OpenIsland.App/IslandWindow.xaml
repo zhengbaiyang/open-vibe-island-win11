@@ -143,21 +143,55 @@
                             ToolTip="Settings">
                         <Path Style="{StaticResource ButtonIconPath}" Data="{StaticResource IconGear}"/>
                     </Button>
-                    <Path x:Name="Chevron"
-                          Width="11" Height="11"
-                          Margin="7,1,3,0"
-                          Stretch="Uniform"
-                          Stroke="#8A95A6"
-                          StrokeThickness="1.8"
-                          StrokeStartLineCap="Round"
-                          StrokeEndLineCap="Round"
-                          Data="{StaticResource ChevronDown}"
-                          RenderTransformOrigin="0.5,0.5"
-                          VerticalAlignment="Center">
-                        <Path.RenderTransform>
-                            <RotateTransform x:Name="ChevronRotate" Angle="0"/>
-                        </Path.RenderTransform>
-                    </Path>
+                    <Border x:Name="PinToggleBadge"
+                            Visibility="Collapsed"
+                            Background="#0FFFFFFF"
+                            BorderBrush="#1FFFFFFF"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="7,2,8,2"
+                            Margin="6,0,2,0"
+                            VerticalAlignment="Center"
+                            Cursor="Hand"
+                            MouseLeftButtonUp="PinToggleBadge_MouseLeftButtonUp">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="PinStatusDot"
+                                     Width="6" Height="6"
+                                     Fill="#6F7B8F"
+                                     Margin="0,0,5,0"
+                                     VerticalAlignment="Center"/>
+                            <TextBlock x:Name="PinStatusText"
+                                       Text="未固定"
+                                       FontSize="10"
+                                       FontWeight="SemiBold"
+                                       Foreground="#8A95A6"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="ChevronBtn"
+                            Width="26" Height="26"
+                            CornerRadius="8"
+                            Margin="3,0,0,0"
+                            Background="Transparent"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            MouseLeftButtonUp="ChevronBtn_MouseLeftButtonUp">
+                        <Path x:Name="Chevron"
+                              Width="11" Height="11"
+                              Stretch="Uniform"
+                              Stroke="#8A95A6"
+                              StrokeThickness="1.8"
+                              StrokeStartLineCap="Round"
+                              StrokeEndLineCap="Round"
+                              Data="{StaticResource ChevronDown}"
+                              RenderTransformOrigin="0.5,0.5"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center">
+                            <Path.RenderTransform>
+                                <RotateTransform x:Name="ChevronRotate" Angle="0"/>
+                            </Path.RenderTransform>
+                        </Path>
+                    </Border>
                 </StackPanel>
             </Grid>
 

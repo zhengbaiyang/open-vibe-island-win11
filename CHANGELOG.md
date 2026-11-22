@@ -4,6 +4,26 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.9] - 2026-11-22
+
+### 🐛 修复与交互体验优化 / Fixes & UX Polish
+
+- **消除 Google Antigravity 授权弹窗抢跑**：为 Antigravity `BypassSandbox` / `SafeToAutoRun: false` 命令审批增加 4 秒缓冲窗口，等待平台完成自动放行检查并真正弹出授权提示后再在灵动岛展示，不再提前误报。
+  **Eliminated premature Antigravity authorization prompts**: added a 4-second settle window for Antigravity `BypassSandbox` / `SafeToAutoRun: false` commands so Open Island no longer pops up before Antigravity actually asks for approval or on fast auto-approved commands.
+- **修复观察型卡片交互不清与点击无反应的问题**：
+  - 无法远程审批的观察型审批 / 提问卡片顶部显式标注「需在客户端操作」/「需在客户端选择」徽章；
+  - 观察型审批卡片不再将客户端动作渲染成易误解的可点击编号按钮，改为只读预览标签；
+  - 点击「前往 `<Agent>` 处理 / 选择」或观察型选项时，切回目标客户端并**立即取消固定、收起灵动岛**让出操作空间。
+  **Clarified observational cards & added jump-and-collapse**: observational approval/question cards now display explicit "Action in app" / "Select in app" badges, render observational approval options as read-only preview chips instead of misleading clickable buttons, and collapse/unpin the island immediately upon jumping back to the host app.
+- **彻底修复审批 / 提问卡片每隔几秒周期性闪烁的问题**：
+  - `SessionStateReducer.UpsertDiscoveredSession` 增加脏检查，轮询发现内容无变化时不再重复触发 `StateChanged`；
+  - `IslandWindow.RenderState` 按 `RequestId` 签名做增量比对，已有卡片保留原 UI 实例不重建、不重复播放入场淡入动画。
+  **Fixed periodic card flashing every few seconds**: added change-detection in `SessionStateReducer.UpsertDiscoveredSession` and `RequestId` diffing in `IslandWindow.RenderState` so unchanged action cards are never torn down or re-animated during background polls.
+- **右上角新增固定状态指示徽章与可用收起箭头**：
+  - 展开态顶栏右上角新增可点击的 **`● 已固定`**（蓝色高亮） / **`● 未固定`** 状态切换徽章；
+  - 右侧箭头按钮在固定时同步高亮，点击后无论鼠标是否悬停都会**立即取消固定并收起灵动岛**（在鼠标移出前抑制 hover 自动弹回）。
+  **Added pinned-state indicator & immediate collapse chevron**: expanded headers now display a clickable **`Pinned` / `Auto`** toggle badge alongside a highlighted chevron button that immediately unpins and collapses the island even while hovered.
+
 ## [0.1.8] - 2026-11-22
 
 ### ✨ 全平台交互选项与审批完整接入 / All-Platform Options & Approvals
@@ -83,6 +103,7 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.9]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.5...v0.1.6
