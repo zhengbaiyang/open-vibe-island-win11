@@ -211,8 +211,8 @@ public partial class SettingsWindow : Window
     private void FitWindowToWorkArea()
     {
         var work = SystemParameters.WorkArea;
-        Width = Math.Min(1040, Math.Max(880, work.Width - 24));
-        Height = Math.Min(720, Math.Max(620, work.Height - 24));
+        Width = Math.Min(1044, Math.Max(884, work.Width - 20));
+        Height = Math.Min(724, Math.Max(624, work.Height - 20));
         Left = work.Left + (work.Width - Width) / 2;
         Top = work.Top + (work.Height - Height) / 2;
         WindowStartupLocation = WindowStartupLocation.Manual;

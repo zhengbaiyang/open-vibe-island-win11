@@ -2,10 +2,10 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Open Island — 设置"
-        Width="1040"
-        Height="720"
-        MinWidth="880"
-        MinHeight="620"
+        Width="1044"
+        Height="724"
+        MinWidth="884"
+        MinHeight="624"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
@@ -38,19 +38,24 @@
         </Style>
     </Window.Resources>
 
-    <!-- Rounded, shadowed window surface. The 18px margin leaves room for the drop shadow. -->
-    <Border x:Name="RootFrame" Margin="18" CornerRadius="16"
-            BorderBrush="#262C38" BorderThickness="1">
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#0E1117" Offset="0"/>
-                <GradientStop Color="#0B0D10" Offset="0.55"/>
-                <GradientStop Color="#0A0C10" Offset="1"/>
-            </LinearGradientBrush>
-        </Border.Background>
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="40" ShadowDepth="12" Opacity="0.55"/>
-        </Border.Effect>
+    <!-- Rounded, softly shadowed window surface. Margin leaves full room for the centered shadow with zero edge clipping. -->
+    <Grid x:Name="RootFrame" Margin="20,18,20,22">
+        <!-- Separate shadow caster so UI content retains crisp ClearType rendering and smooth animations. -->
+        <Border Margin="1" CornerRadius="15" Background="#0B0D10" IsHitTestVisible="False">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="2" Direction="270" Opacity="0.18"
+                                  RenderingBias="Quality"/>
+            </Border.Effect>
+        </Border>
+
+        <Border CornerRadius="16" BorderBrush="#262C38" BorderThickness="1">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#0E1117" Offset="0"/>
+                    <GradientStop Color="#0B0D10" Offset="0.55"/>
+                    <GradientStop Color="#0A0C10" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
 
         <Grid>
             <Grid.RowDefinitions>
@@ -1232,5 +1237,6 @@
                 </Grid>
             </Grid>
         </Grid>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

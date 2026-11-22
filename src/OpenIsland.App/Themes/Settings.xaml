@@ -777,19 +777,24 @@
                                           Margin="{TemplateBinding Padding}"
                                           HorizontalAlignment="Left" VerticalAlignment="Center"/>
                         <Popup x:Name="PART_Popup" Placement="Bottom" PlacementTarget="{Binding ElementName=ToggleButton}"
-                               VerticalOffset="6" AllowsTransparency="True" Focusable="False"
+                               HorizontalOffset="-14" VerticalOffset="2" AllowsTransparency="True" Focusable="False"
                                IsOpen="{TemplateBinding IsDropDownOpen}" PopupAnimation="Slide">
-                            <Border Background="#141821" BorderBrush="#2A3140" BorderThickness="1"
-                                    CornerRadius="10" MinWidth="{Binding ActualWidth, ElementName=ToggleButton}"
-                                    MaxHeight="{TemplateBinding MaxDropDownHeight}" Margin="0,0,10,10">
-                                <Border.Effect>
-                                    <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="6" Opacity="0.55"/>
-                                </Border.Effect>
-                                <ScrollViewer Margin="4" VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Disabled">
-                                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
-                                </ScrollViewer>
-                            </Border>
+                            <Grid Margin="14,4,14,18">
+                                <Border Margin="1" CornerRadius="9" Background="#141821" IsHitTestVisible="False">
+                                    <Border.Effect>
+                                        <DropShadowEffect Color="Black" BlurRadius="16" ShadowDepth="3" Direction="270"
+                                                          Opacity="0.28" RenderingBias="Quality"/>
+                                    </Border.Effect>
+                                </Border>
+                                <Border Background="#141821" BorderBrush="#2A3140" BorderThickness="1"
+                                        CornerRadius="10" MinWidth="{Binding ActualWidth, ElementName=ToggleButton}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <ScrollViewer Margin="4" VerticalScrollBarVisibility="Auto"
+                                                  HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
                         </Popup>
                     </Grid>
                     <ControlTemplate.Triggers>
