@@ -56,12 +56,9 @@ public sealed class BridgeServer : IDisposable
         _reducer.ClearPendingQuestion(request.SessionId, request.RequestId);
         if (_pendingDirectives.TryRemove(request.RequestId, out var tcs))
         {
-            tcs.TrySetResult(new BridgeResponse
-            {
-                Ok = true,
-                Decision = "answer",
-                Answers = answers
-            });
+            AppLog.Info($"question resolved answers={answers.Count} request={request.RequestId}");
+            var response = DirectiveEncoder.EncodeQuestionAnswer(request.Source, "QuestionRequest", answers);
+            tcs.TrySetResult(response);
         }
     }
 

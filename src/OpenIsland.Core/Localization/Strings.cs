@@ -84,6 +84,16 @@ public static class Strings
         ["SingleSelectBadge"]  = ("单选", "Single-select"),
         ["RecommendedBadge"]   = ("推荐", "Recommended"),
         ["IgnoreReminder"]     = ("忽略", "Dismiss"),
+        ["OptionAllowOnce"]    = ("允许一次", "Allow once"),
+        ["OptionAllowAlways"]  = ("始终允许", "Always allow"),
+        ["OptionDeny"]         = ("拒绝", "Deny"),
+        ["OptionProceedPlan"]  = ("继续执行 (Proceed)", "Proceed"),
+        ["OptionRequestChanges"] = ("提出修改意见", "Request changes"),
+        ["CommandApprovalSummary"] = ("沙箱外命令需要你的授权确认", "Command requires your approval"),
+        ["PlanApprovalSummary"]    = ("方案 / 产物已生成，等待你的确认", "Plan / artifact is ready for your review"),
+        ["OpenToApprove"]          = ("前往 {0} 处理", "Open {0}"),
+        ["ClickOptionToApproveHint"] = ("点击选项或按钮将切回 {0} 完成操作", "Click an option or button to jump to {0}"),
+        ["SubmitSelected"]         = ("提交所选", "Submit Selected"),
 
         // Settings shell
         ["SettingsSubtitle"]   = ("本地优先的 AI 编程 Agent 控制中心", "Local-first control center for AI coding agents"),

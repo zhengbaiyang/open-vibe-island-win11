@@ -66,6 +66,8 @@ public sealed class HookInstallManager
     [
         ("SessionStart", 45),
         ("UserPromptSubmit", 45),
+        ("PreToolUse", 45),
+        ("PostToolUse", 45),
         ("PermissionRequest", 3600),
         ("Stop", 45)
     ];
@@ -713,7 +715,7 @@ public sealed class HookInstallManager
         root["hooks"] = hooks;
 
         var cmd = $"\"{hooksExe}\" --source gemini";
-        string[] events = ["SessionStart", "BeforeAgent", "AfterAgent", "SessionEnd", "Notification"];
+        string[] events = ["SessionStart", "BeforeAgent", "BeforeTool", "AfterTool", "AfterAgent", "SessionEnd", "Notification"];
 
         foreach (var ev in events)
         {

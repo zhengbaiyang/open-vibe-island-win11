@@ -102,4 +102,43 @@ public static class DirectiveEncoder
         // Fire-and-forget agents (Gemini, Grok, Hermes, Pi, OMP, Cursor): no stdout directive
         return resp;
     }
+
+    public static BridgeResponse EncodeQuestionAnswer(
+        AgentSource source,
+        string hookEventName,
+        Dictionary<string, string> answers)
+    {
+        var resp = new BridgeResponse
+        {
+            Ok = true,
+            Decision = "answer",
+            Answers = answers
+        };
+
+        if (source is AgentSource.Claude or AgentSource.Qoder or AgentSource.Qwen
+            or AgentSource.Factory or AgentSource.CodeBuddy or AgentSource.Kimi or AgentSource.Codex)
+        {
+            var summary = string.Join("; ", answers.Select(kv => $"{kv.Key}: {kv.Value}"));
+            var payload = new
+            {
+                @continue = true,
+                suppressOutput = true,
+                hookSpecificOutput = new
+                {
+                    hookEventName = string.IsNullOrWhiteSpace(hookEventName) ? "QuestionRequest" : hookEventName,
+                    decision = new
+                    {
+                        behavior = "allow",
+                        answers
+                    },
+                    answers,
+                    updatedInput = new { answers },
+                    additionalContext = summary
+                }
+            };
+            resp.StdoutDirective = JsonSerializer.Serialize(payload);
+        }
+
+        return resp;
+    }
 }

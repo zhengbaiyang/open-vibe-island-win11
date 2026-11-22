@@ -898,7 +898,7 @@ public partial class IslandWindow : Window
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(9, 6, 9, 6),
-                Margin = new Thickness(0, 8, 0, 9),
+                Margin = new Thickness(0, 8, 0, 7),
                 Child = new TextBlock
                 {
                     Text = req.CommandOrDetails,
@@ -911,52 +911,206 @@ public partial class IslandWindow : Window
             });
         }
 
-        var buttons = new StackPanel
+        if (req.Options.Count > 0)
         {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 4, 0, 0)
-        };
-        var allowBtn = new Button
-        {
-            Content = Strings.Get("Approve"),
-            Style = (Style)FindResource("ApproveButton"),
-            Margin = new Thickness(0, 0, 6, 0),
-            Padding = new Thickness(13, 5, 13, 5)
-        };
-        allowBtn.Click += (_, _) =>
-        {
-            _app.Bridge.ResolveApproval(req, allow: true);
-            AfterApprovalResolved();
-        };
-        var denyBtn = new Button
-        {
-            Content = Strings.Get("Deny"),
-            Style = (Style)FindResource("DenyButton"),
-            Margin = new Thickness(0, 0, 6, 0),
-            Padding = new Thickness(13, 5, 13, 5)
-        };
-        denyBtn.Click += (_, _) =>
-        {
-            _app.Bridge.ResolveApproval(req, allow: false, interrupt: false);
-            AfterApprovalResolved();
-        };
-        var jumpBtn = new Button
-        {
-            Content = Strings.Get("JumpBack"),
-            Style = (Style)FindResource("PillButton"),
-            Padding = new Thickness(11, 5, 11, 5)
-        };
-        jumpBtn.Click += (_, _) => TerminalJumper.JumpToSession(session);
+            var optsList = new StackPanel { Margin = new Thickness(0, 6, 0, 2) };
+            for (int i = 0; i < req.Options.Count; i++)
+            {
+                var opt = req.Options[i];
+                var (displayLabel, isRecommended) = StripRecommendedPrefix(opt.Label);
+                var isDenyOpt = IsDenyLikeLabel(displayLabel);
 
-        buttons.Children.Add(allowBtn);
-        buttons.Children.Add(denyBtn);
-        buttons.Children.Add(jumpBtn);
-        stack.Children.Add(buttons);
+                var optGrid = new Grid();
+                optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                var idxBadge = new Border
+                {
+                    Width = 18,
+                    Height = 18,
+                    CornerRadius = new CornerRadius(5),
+                    Background = B(isDenyOpt ? "#26F26D6D" : "#246FB982"),
+                    BorderBrush = B(isDenyOpt ? "#55F26D6D" : "#556FB982"),
+                    BorderThickness = new Thickness(1),
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 1, 8, 0),
+                    Child = new TextBlock
+                    {
+                        Text = (i + 1).ToString(),
+                        FontSize = 10,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = B(isDenyOpt ? "#F6B3B3" : "#A8E0B9"),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                };
+                Grid.SetColumn(idxBadge, 0);
+                optGrid.Children.Add(idxBadge);
+
+                var optTextStack = new StackPanel();
+                if (isRecommended)
+                {
+                    var recBadge = Chip(Strings.Get("RecommendedBadge"), "#8ED7A5", "#246FB982", new Thickness(0, 0, 0, 3));
+                    recBadge.HorizontalAlignment = HorizontalAlignment.Left;
+                    optTextStack.Children.Add(recBadge);
+                }
+                optTextStack.Children.Add(new TextBlock
+                {
+                    Text = displayLabel,
+                    Foreground = B("#F2F4F8"),
+                    FontSize = 11.5,
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 16
+                });
+                if (!string.IsNullOrWhiteSpace(opt.Description))
+                {
+                    optTextStack.Children.Add(new TextBlock
+                    {
+                        Text = opt.Description,
+                        Foreground = B("#8A95A6"),
+                        FontSize = 10.5,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 2, 0, 0)
+                    });
+                }
+                Grid.SetColumn(optTextStack, 1);
+                optGrid.Children.Add(optTextStack);
+
+                var baseBg = "#12FFFFFF";
+                var hoverBg = isDenyOpt ? "#22F26D6D" : "#226FB982";
+                var optCard = new Border
+                {
+                    Background = B(baseBg),
+                    BorderBrush = B("#22FFFFFF"),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(9, 6, 10, 6),
+                    Margin = new Thickness(0, 0, 0, 5),
+                    Cursor = Cursors.Hand,
+                    Child = optGrid
+                };
+                optCard.MouseEnter += (_, _) => AnimateRowBackground(optCard, hoverBg, 110);
+                optCard.MouseLeave += (_, _) => AnimateRowBackground(optCard, baseBg, 150);
+                optCard.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    if (req.IsBlocking)
+                    {
+                        _app.Bridge.ResolveApproval(req, allow: !isDenyOpt, reason: displayLabel);
+                        AfterApprovalResolved();
+                    }
+                    else
+                    {
+                        TerminalJump(session);
+                    }
+                };
+                optsList.Children.Add(optCard);
+            }
+            stack.Children.Add(optsList);
+        }
+
+        if (req.IsBlocking)
+        {
+            var buttons = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 4, 0, 0)
+            };
+            var allowBtn = new Button
+            {
+                Content = Strings.Get("Approve"),
+                Style = (Style)FindResource("ApproveButton"),
+                Margin = new Thickness(0, 0, 6, 0),
+                Padding = new Thickness(13, 5, 13, 5)
+            };
+            allowBtn.Click += (_, _) =>
+            {
+                _app.Bridge.ResolveApproval(req, allow: true);
+                AfterApprovalResolved();
+            };
+            var denyBtn = new Button
+            {
+                Content = Strings.Get("Deny"),
+                Style = (Style)FindResource("DenyButton"),
+                Margin = new Thickness(0, 0, 6, 0),
+                Padding = new Thickness(13, 5, 13, 5)
+            };
+            denyBtn.Click += (_, _) =>
+            {
+                _app.Bridge.ResolveApproval(req, allow: false, interrupt: false);
+                AfterApprovalResolved();
+            };
+            var jumpBtn = new Button
+            {
+                Content = Strings.Get("JumpBack"),
+                Style = (Style)FindResource("PillButton"),
+                Padding = new Thickness(11, 5, 11, 5)
+            };
+            jumpBtn.Click += (_, _) => TerminalJump(session);
+
+            buttons.Children.Add(allowBtn);
+            buttons.Children.Add(denyBtn);
+            buttons.Children.Add(jumpBtn);
+            stack.Children.Add(buttons);
+        }
+        else
+        {
+            var footer = new Grid { Margin = new Thickness(0, 5, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var hintText = new TextBlock
+            {
+                Text = Strings.Get("ClickOptionToApproveHint", meta.DisplayName),
+                Foreground = B("#C6A6A6"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(hintText, 0);
+            footer.Children.Add(hintText);
+
+            var actionButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var openBtn = new Button
+            {
+                Content = Strings.Get("OpenToApprove", meta.DisplayName),
+                Style = (Style)FindResource("ApproveButton"),
+                Padding = new Thickness(11, 5, 11, 5),
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            openBtn.Click += (_, _) => TerminalJump(session);
+
+            var dismissBtn = new Button
+            {
+                Content = Strings.Get("IgnoreReminder"),
+                Style = (Style)FindResource("PillButton"),
+                Padding = new Thickness(10, 5, 10, 5)
+            };
+            dismissBtn.Click += (_, _) =>
+            {
+                _app.Reducer.ClearPendingApproval(session.SessionId, req.RequestId, allowed: false);
+                AfterApprovalResolved();
+            };
+
+            actionButtons.Children.Add(openBtn);
+            actionButtons.Children.Add(dismissBtn);
+            Grid.SetColumn(actionButtons, 1);
+            footer.Children.Add(actionButtons);
+            stack.Children.Add(footer);
+        }
 
         card.Child = stack;
         AnimateCardIn(card);
         return card;
+    }
+
+    private static bool IsDenyLikeLabel(string label)
+    {
+        var lower = (label ?? "").Trim().ToLowerInvariant();
+        return lower.Contains("deny") || lower.Contains("reject") || lower.Contains("decline")
+               || lower.Contains("cancel") || lower.Contains("拒绝") || lower.Contains("取消");
     }
 
     private void AfterApprovalResolved()
@@ -1012,7 +1166,11 @@ public partial class IslandWindow : Window
         }
         stack.Children.Add(header);
 
-        // Scrollable questions & full wrapped option cards (handles long /grill-me prompts cleanly)
+        // Scrollable questions & full wrapped option cards (handles long /grill-me prompts & multi-select cleanly)
+        bool requiresExplicitSubmit = req.IsBlocking && (questions.Count > 1 || questions.Any(q => q.MultiSelect));
+        var selectedByQuestion = new Dictionary<int, List<string>>();
+        var optionCardsByQuestion = new Dictionary<int, List<(Border Card, TextBlock IndexText, string Label, bool IsRecommended)>>();
+
         var questionsBody = new StackPanel();
         for (int qIdx = 0; qIdx < questions.Count; qIdx++)
         {
@@ -1034,6 +1192,9 @@ public partial class IslandWindow : Window
 
             if (qItem.Options.Count > 0)
             {
+                var qList = new List<(Border, TextBlock, string, bool)>();
+                optionCardsByQuestion[qIdx] = qList;
+
                 var optionsList = new StackPanel { Margin = new Thickness(0, 7, 0, 2) };
                 for (int oIdx = 0; oIdx < qItem.Options.Count; oIdx++)
                 {
@@ -1044,6 +1205,15 @@ public partial class IslandWindow : Window
                     optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
+                    var idxText = new TextBlock
+                    {
+                        Text = (oIdx + 1).ToString(),
+                        FontSize = 10,
+                        FontWeight = FontWeights.SemiBold,
+                        Foreground = B(isRecommended ? "#9CC7FF" : "#A6B3C6"),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
                     var indexBadge = new Border
                     {
                         Width = 18,
@@ -1054,15 +1224,7 @@ public partial class IslandWindow : Window
                         BorderThickness = new Thickness(1),
                         VerticalAlignment = VerticalAlignment.Top,
                         Margin = new Thickness(0, 1, 8, 0),
-                        Child = new TextBlock
-                        {
-                            Text = (oIdx + 1).ToString(),
-                            FontSize = 10,
-                            FontWeight = FontWeights.SemiBold,
-                            Foreground = B(isRecommended ? "#9CC7FF" : "#A6B3C6"),
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            VerticalAlignment = VerticalAlignment.Center
-                        }
+                        Child = idxText
                     };
                     Grid.SetColumn(indexBadge, 0);
                     optGrid.Children.Add(indexBadge);
@@ -1121,26 +1283,72 @@ public partial class IslandWindow : Window
                         Cursor = Cursors.Hand,
                         Child = optGrid
                     };
-                    var baseBg = isRecommended ? "#1C6EA7FF" : "#12FFFFFF";
-                    var hoverBg = isRecommended ? "#2B6EA7FF" : "#20FFFFFF";
-                    optCard.MouseEnter += (_, _) => AnimateRowBackground(optCard, hoverBg, 110);
-                    optCard.MouseLeave += (_, _) => AnimateRowBackground(optCard, baseBg, 150);
+                    qList.Add((optCard, idxText, opt.Label, isRecommended));
 
+                    var capturedQIdx = qIdx;
+                    var capturedOIdx = oIdx;
                     var capturedQ = qItem;
                     var capturedOpt = opt;
+                    var baseBg = isRecommended ? "#1C6EA7FF" : "#12FFFFFF";
+                    var hoverBg = isRecommended ? "#2B6EA7FF" : "#20FFFFFF";
+
+                    optCard.MouseEnter += (_, _) =>
+                    {
+                        bool isSel = selectedByQuestion.TryGetValue(capturedQIdx, out var sel) && sel.Contains(capturedOpt.Label);
+                        if (!isSel) AnimateRowBackground(optCard, hoverBg, 110);
+                    };
+                    optCard.MouseLeave += (_, _) =>
+                    {
+                        bool isSel = selectedByQuestion.TryGetValue(capturedQIdx, out var sel) && sel.Contains(capturedOpt.Label);
+                        if (!isSel) AnimateRowBackground(optCard, baseBg, 150);
+                    };
+
                     optCard.MouseLeftButtonUp += (_, e) =>
                     {
                         e.Handled = true;
-                        if (req.IsBlocking)
+                        if (!req.IsBlocking)
+                        {
+                            // Observational question (e.g. Google Antigravity ask_question / /grill-me, Codex rollout, DSH):
+                            // jump straight to the host app so the user can click their choice there.
+                            TerminalJump(session);
+                            return;
+                        }
+
+                        if (!requiresExplicitSubmit)
                         {
                             _app.Bridge.ResolveQuestion(req, new Dictionary<string, string> { [capturedQ.Question] = capturedOpt.Label });
                             AfterApprovalResolved();
+                            return;
+                        }
+
+                        if (!selectedByQuestion.TryGetValue(capturedQIdx, out var selected))
+                        {
+                            selected = new List<string>();
+                            selectedByQuestion[capturedQIdx] = selected;
+                        }
+
+                        if (capturedQ.MultiSelect)
+                        {
+                            if (selected.Contains(capturedOpt.Label)) selected.Remove(capturedOpt.Label);
+                            else selected.Add(capturedOpt.Label);
                         }
                         else
                         {
-                            // Observational question (e.g. Google Antigravity ask_question / /grill-me):
-                            // jump straight to the host app so the user can click their choice there.
-                            TerminalJump(session);
+                            selected.Clear();
+                            selected.Add(capturedOpt.Label);
+                        }
+
+                        // Refresh visual selection states for this question
+                        if (optionCardsByQuestion.TryGetValue(capturedQIdx, out var cards))
+                        {
+                            for (int ci = 0; ci < cards.Count; ci++)
+                            {
+                                var (cBorder, cIdx, cLabel, cRec) = cards[ci];
+                                bool active = selected.Contains(cLabel);
+                                cBorder.Background = B(active ? "#336FB982" : (cRec ? "#1C6EA7FF" : "#12FFFFFF"));
+                                cBorder.BorderBrush = B(active ? "#886FB982" : (cRec ? "#556EA7FF" : "#22FFFFFF"));
+                                cIdx.Text = active ? "✓" : (ci + 1).ToString();
+                            }
                         }
                     };
                     optionsList.Children.Add(optCard);
@@ -1164,7 +1372,7 @@ public partial class IslandWindow : Window
             var inputRow = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
             var sendBtn = new Button
             {
-                Content = Strings.Get("SubmitAnswer"),
+                Content = Strings.Get(requiresExplicitSubmit ? "SubmitSelected" : "SubmitAnswer"),
                 Style = (Style)FindResource("ApproveButton"),
                 Padding = new Thickness(13, 5, 13, 5),
                 Margin = new Thickness(7, 0, 0, 0)
@@ -1177,12 +1385,21 @@ public partial class IslandWindow : Window
             };
             sendBtn.Click += (_, _) =>
             {
-                var ans = answerBox.Text.Trim();
-                if (string.IsNullOrEmpty(ans)) return;
-                _app.Bridge.ResolveQuestion(req, new Dictionary<string, string>
+                var answers = new Dictionary<string, string>();
+                for (int qi = 0; qi < questions.Count; qi++)
                 {
-                    [firstQ.Question ?? "answer"] = ans
-                });
+                    if (selectedByQuestion.TryGetValue(qi, out var chosen) && chosen.Count > 0)
+                    {
+                        answers[questions[qi].Question] = string.Join(", ", chosen);
+                    }
+                }
+                var typed = answerBox.Text.Trim();
+                if (!string.IsNullOrEmpty(typed))
+                {
+                    answers[firstQ.Question ?? "answer"] = typed;
+                }
+                if (answers.Count == 0) return;
+                _app.Bridge.ResolveQuestion(req, answers);
                 AfterApprovalResolved();
             };
             answerBox.KeyDown += (_, e) =>

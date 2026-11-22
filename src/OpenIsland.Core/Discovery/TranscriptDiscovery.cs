@@ -53,8 +53,11 @@ public sealed class TranscriptDiscovery
                 string? model = null;
                 string? lastPrompt = null;
                 string? lastAssistant = null;
+                PendingQuestionRequest? pendingQuestion = null;
+                PendingApprovalRequest? pendingApproval = null;
+                var pendingToolUses = new Dictionary<string, (string Name, PendingQuestionRequest? Question, PendingApprovalRequest? Approval)>(StringComparer.Ordinal);
 
-                foreach (var line in ReadTailLines(file, 40))
+                foreach (var line in ReadTailLines(file, 50))
                 {
                     try
                     {
@@ -78,10 +81,105 @@ public sealed class TranscriptDiscovery
                                 else if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
                                     lastAssistant = HookPayloadDecoder.Clip(content, 240);
                             }
+
+                            if (msgEl.TryGetProperty("content", out var contentArr) && contentArr.ValueKind == JsonValueKind.Array)
+                            {
+                                foreach (var block in contentArr.EnumerateArray())
+                                {
+                                    if (block.ValueKind != JsonValueKind.Object) continue;
+                                    var bType = block.TryGetProperty("type", out var btEl) && btEl.ValueKind == JsonValueKind.String
+                                        ? btEl.GetString()
+                                        : null;
+                                    if (string.Equals(bType, "tool_use", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        var toolId = block.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                                            ? idEl.GetString() ?? Guid.NewGuid().ToString("N")
+                                            : Guid.NewGuid().ToString("N");
+                                        var toolName = block.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String
+                                            ? nEl.GetString() ?? ""
+                                            : "";
+
+                                        if (HookPayloadDecoder.IsQuestionToolName(toolName))
+                                        {
+                                            var qs = new List<PendingQuestionItem>();
+                                            if (block.TryGetProperty("input", out var inEl))
+                                            {
+                                                HookPayloadDecoder.ExtractQuestions(inEl, qs);
+                                            }
+                                            if (qs.Count == 0)
+                                            {
+                                                qs.Add(new PendingQuestionItem
+                                                {
+                                                    Header = toolName,
+                                                    Question = Localization.Strings.Get("QuestionHint")
+                                                });
+                                            }
+                                            pendingToolUses[toolId] = (toolName, new PendingQuestionRequest
+                                            {
+                                                RequestId = $"clq-{sessionId}-{toolId}",
+                                                SessionId = sessionId,
+                                                Source = AgentSource.Claude,
+                                                Questions = qs,
+                                                IsBlocking = false,
+                                                CreatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero)
+                                            }, null);
+                                        }
+                                        else if (HookPayloadDecoder.IsPlanApprovalToolName(toolName))
+                                        {
+                                            var opts = new List<QuestionOption>();
+                                            if (block.TryGetProperty("input", out var inEl))
+                                            {
+                                                HookPayloadDecoder.ExtractApprovalOptions(inEl, opts);
+                                            }
+                                            if (opts.Count == 0)
+                                            {
+                                                opts.Add(new QuestionOption { Label = Localization.Strings.Get("OptionProceedPlan") });
+                                                opts.Add(new QuestionOption { Label = Localization.Strings.Get("OptionRequestChanges") });
+                                            }
+                                            pendingToolUses[toolId] = (toolName, null, new PendingApprovalRequest
+                                            {
+                                                RequestId = $"clp-{sessionId}-{toolId}",
+                                                SessionId = sessionId,
+                                                Source = AgentSource.Claude,
+                                                HookEventName = "PermissionRequest",
+                                                ToolName = toolName,
+                                                Summary = Localization.Strings.Get("PlanApprovalSummary"),
+                                                Options = opts,
+                                                IsBlocking = false,
+                                                CreatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero)
+                                            });
+                                        }
+                                    }
+                                    else if (string.Equals(bType, "tool_result", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        var refId = block.TryGetProperty("tool_use_id", out var refEl) && refEl.ValueKind == JsonValueKind.String
+                                            ? refEl.GetString()
+                                            : null;
+                                        if (!string.IsNullOrWhiteSpace(refId))
+                                        {
+                                            pendingToolUses.Remove(refId);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     catch { }
                 }
+
+                var idleSec = (DateTime.UtcNow - info.LastWriteTimeUtc).TotalSeconds;
+                if (idleSec < 1800 && pendingToolUses.Count > 0)
+                {
+                    var latest = pendingToolUses.Values.Last();
+                    pendingQuestion = latest.Question;
+                    pendingApproval = latest.Approval;
+                }
+
+                var phase = pendingQuestion != null
+                    ? SessionPhase.WaitingForAnswer
+                    : pendingApproval != null
+                        ? SessionPhase.WaitingForApproval
+                        : idleSec < 25 ? SessionPhase.Running : SessionPhase.Idle;
 
                 results.Add(new AgentSession
                 {
@@ -92,8 +190,12 @@ public sealed class TranscriptDiscovery
                     TranscriptPath = file,
                     LastPrompt = lastPrompt,
                     LastAssistantMessage = lastAssistant,
-                    StatusSummary = lastAssistant ?? lastPrompt ?? "Claude Code session",
-                    Phase = (DateTime.UtcNow - info.LastWriteTimeUtc).TotalSeconds < 25 ? SessionPhase.Running : SessionPhase.Idle,
+                    StatusSummary = pendingQuestion?.Questions.FirstOrDefault()?.Question
+                                    ?? pendingApproval?.Summary
+                                    ?? lastAssistant ?? lastPrompt ?? "Claude Code session",
+                    Phase = phase,
+                    PendingQuestion = pendingQuestion,
+                    PendingApproval = pendingApproval,
                     UpdatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero),
                     CreatedAt = new DateTimeOffset(info.CreationTimeUtc, TimeSpan.Zero)
                 });
@@ -175,6 +277,8 @@ public sealed class TranscriptDiscovery
 
                 if (skipFile) continue;
 
+                var codexPendingQuestions = new Dictionary<string, PendingQuestionRequest>(StringComparer.Ordinal);
+
                 foreach (var line in ReadTailLines(file, 60))
                 {
                     try
@@ -203,13 +307,66 @@ public sealed class TranscriptDiscovery
                                     || orig.Contains("chatgpt", StringComparison.OrdinalIgnoreCase))
                                     isDesktop = true;
                             }
+
+                            var pType = payload.TryGetProperty("type", out var ptEl) && ptEl.ValueKind == JsonValueKind.String
+                                ? ptEl.GetString()
+                                : null;
+                            if (string.Equals(pType, "function_call", StringComparison.OrdinalIgnoreCase) ||
+                                string.Equals(pType, "tool_call", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var fnName = payload.TryGetProperty("name", out var fnEl) && fnEl.ValueKind == JsonValueKind.String
+                                    ? fnEl.GetString()
+                                    : null;
+                                var callId = payload.TryGetProperty("call_id", out var cidEl) && cidEl.ValueKind == JsonValueKind.String
+                                    ? cidEl.GetString() ?? Guid.NewGuid().ToString("N")
+                                    : Guid.NewGuid().ToString("N");
+                                if (HookPayloadDecoder.IsQuestionToolName(fnName))
+                                {
+                                    var qs = new List<PendingQuestionItem>();
+                                    if (payload.TryGetProperty("arguments", out var argsEl))
+                                    {
+                                        HookPayloadDecoder.ExtractQuestions(argsEl, qs);
+                                    }
+                                    if (qs.Count == 0)
+                                    {
+                                        qs.Add(new PendingQuestionItem
+                                        {
+                                            Header = fnName ?? "Codex",
+                                            Question = Localization.Strings.Get("QuestionHint")
+                                        });
+                                    }
+                                    codexPendingQuestions[callId] = new PendingQuestionRequest
+                                    {
+                                        RequestId = $"cxq-{sessionId}-{callId}",
+                                        SessionId = sessionId,
+                                        Source = AgentSource.Codex,
+                                        Questions = qs,
+                                        IsBlocking = false,
+                                        CreatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero)
+                                    };
+                                }
+                            }
+                            else if (string.Equals(pType, "function_call_output", StringComparison.OrdinalIgnoreCase) ||
+                                     string.Equals(pType, "tool_call_output", StringComparison.OrdinalIgnoreCase))
+                            {
+                                var refCallId = payload.TryGetProperty("call_id", out var refCidEl) && refCidEl.ValueKind == JsonValueKind.String
+                                    ? refCidEl.GetString()
+                                    : null;
+                                if (!string.IsNullOrWhiteSpace(refCallId))
+                                {
+                                    codexPendingQuestions.Remove(refCallId);
+                                }
+                            }
                         }
 
                         var (role, text) = ExtractCodexMessage(root);
                         if (!string.IsNullOrWhiteSpace(text))
                         {
                             if (string.Equals(role, "user", StringComparison.OrdinalIgnoreCase))
+                            {
                                 lastPrompt = HookPayloadDecoder.Clip(text, 160);
+                                codexPendingQuestions.Clear();
+                            }
                             else if (string.Equals(role, "assistant", StringComparison.OrdinalIgnoreCase))
                                 lastAssistant = HookPayloadDecoder.Clip(text, 240);
                         }
@@ -238,6 +395,11 @@ public sealed class TranscriptDiscovery
                     DeepLinkUrl = Guid.TryParse(sessionId, out _) ? $"codex://threads/{sessionId}" : null
                 };
 
+                var codexIdleSec = (DateTime.UtcNow - info.LastWriteTimeUtc).TotalSeconds;
+                var codexPendingQ = codexIdleSec < 1800 && codexPendingQuestions.Count > 0
+                    ? codexPendingQuestions.Values.Last()
+                    : null;
+
                 results.Add(new AgentSession
                 {
                     SessionId = sessionId,
@@ -248,8 +410,11 @@ public sealed class TranscriptDiscovery
                     TranscriptPath = file,
                     LastPrompt = lastPrompt,
                     LastAssistantMessage = lastAssistant,
-                    StatusSummary = lastAssistant ?? lastPrompt ?? "Codex session",
-                    Phase = (DateTime.UtcNow - info.LastWriteTimeUtc).TotalSeconds < 25 ? SessionPhase.Running : SessionPhase.Idle,
+                    StatusSummary = codexPendingQ?.Questions.FirstOrDefault()?.Question ?? lastAssistant ?? lastPrompt ?? "Codex session",
+                    Phase = codexPendingQ != null
+                        ? SessionPhase.WaitingForAnswer
+                        : codexIdleSec < 25 ? SessionPhase.Running : SessionPhase.Idle,
+                    PendingQuestion = codexPendingQ,
                     UpdatedAt = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero),
                     CreatedAt = new DateTimeOffset(info.CreationTimeUtc, TimeSpan.Zero),
                     Terminal = terminal
@@ -478,10 +643,21 @@ public sealed class TranscriptDiscovery
                         if (stats.TryGetProperty("turns", out var turnsEl) && turnsEl.TryGetInt32(out var turns))
                             turnCount = turns;
                     }
-                    if (GetRowValue(rows, "approvalState") is { } approval &&
-                        approval.TryGetProperty("turnOpen", out var openTurnEl) &&
-                        openTurnEl.ValueKind == JsonValueKind.True)
-                        turnOpen = true;
+                    var sessionId = Path.GetFileNameWithoutExtension(file.Name);
+                    if (sessionId.StartsWith("session-", StringComparison.OrdinalIgnoreCase))
+                        sessionId = sessionId[8..];
+
+                    PendingQuestionRequest? dshPendingQuestion = null;
+                    PendingApprovalRequest? dshPendingApproval = null;
+
+                    if (GetRowValue(rows, "approvalState") is { ValueKind: JsonValueKind.Object } approval)
+                    {
+                        if (approval.TryGetProperty("turnOpen", out var openTurnEl) &&
+                            openTurnEl.ValueKind == JsonValueKind.True)
+                            turnOpen = true;
+
+                        TryExtractDshPendingInteraction(sessionId, approval, out dshPendingQuestion, out dshPendingApproval);
+                    }
 
                     if (GetRowValue(rows, "turnOutline") is { } outline &&
                         outline.TryGetProperty("turns", out var outlineTurns) &&
@@ -505,21 +681,29 @@ public sealed class TranscriptDiscovery
 
                     var updatedAt = DateTimeOffset.FromUnixTimeMilliseconds(activityMs.Value);
                     var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
-                    var running = turnOpen && idleSeconds < 1800;
-                    var phase = running
-                        ? SessionPhase.Running
-                        : idleSeconds < 30 ? SessionPhase.Completed : SessionPhase.Idle;
+                    if (idleSeconds >= 1800)
+                    {
+                        dshPendingQuestion = null;
+                        dshPendingApproval = null;
+                    }
 
-                    var sessionId = Path.GetFileNameWithoutExtension(file.Name);
-                    if (sessionId.StartsWith("session-", StringComparison.OrdinalIgnoreCase))
-                        sessionId = sessionId[8..];
+                    var running = turnOpen && idleSeconds < 1800;
+                    var phase = dshPendingQuestion != null
+                        ? SessionPhase.WaitingForAnswer
+                        : dshPendingApproval != null
+                            ? SessionPhase.WaitingForApproval
+                            : running
+                                ? SessionPhase.Running
+                                : idleSeconds < 30 ? SessionPhase.Completed : SessionPhase.Idle;
 
                     var title = !string.IsNullOrWhiteSpace(metaTitle) ? metaTitle : lastPrompt;
-                    var statusSummary = !string.IsNullOrWhiteSpace(lastAssistant)
-                        ? HookPayloadDecoder.Clip(lastAssistant, 160)
-                        : !string.IsNullOrWhiteSpace(lastPrompt)
-                            ? HookPayloadDecoder.Clip(lastPrompt, 160)
-                            : "DeepSeek Harness session";
+                    var statusSummary = dshPendingQuestion?.Questions.FirstOrDefault()?.Question
+                        ?? dshPendingApproval?.Summary
+                        ?? (!string.IsNullOrWhiteSpace(lastAssistant)
+                            ? HookPayloadDecoder.Clip(lastAssistant, 160)
+                            : !string.IsNullOrWhiteSpace(lastPrompt)
+                                ? HookPayloadDecoder.Clip(lastPrompt, 160)
+                                : "DeepSeek Harness session");
 
                     results.Add(new AgentSession
                     {
@@ -532,6 +716,8 @@ public sealed class TranscriptDiscovery
                         LastAssistantMessage = HookPayloadDecoder.Clip(lastAssistant, 240),
                         StatusSummary = statusSummary,
                         Phase = phase,
+                        PendingQuestion = dshPendingQuestion,
+                        PendingApproval = dshPendingApproval,
                         UpdatedAt = updatedAt,
                         CreatedAt = createdAt,
                         Terminal = new TerminalMetadata
@@ -601,8 +787,10 @@ public sealed class TranscriptDiscovery
                         DateTimeOffset? createdAt = null;
                         DateTimeOffset? lastActivity = null;
                         PendingQuestionRequest? pendingQuestion = null;
-                        int pendingQuestionToolCount = 0;
-                        int completedGenericSinceQuestion = 0;
+                        PendingApprovalRequest? pendingApproval = null;
+                        PendingApprovalRequest? pendingPlanFeedback = null;
+                        int pendingToolCallCount = 0;
+                        int completedGenericSincePlanner = 0;
 
                         void ProcessLine(string line, bool isHead)
                         {
@@ -641,8 +829,10 @@ public sealed class TranscriptDiscovery
                                     if (!isHead)
                                     {
                                         pendingQuestion = null;
-                                        pendingQuestionToolCount = 0;
-                                        completedGenericSinceQuestion = 0;
+                                        pendingApproval = null;
+                                        pendingPlanFeedback = null;
+                                        pendingToolCallCount = 0;
+                                        completedGenericSincePlanner = 0;
                                     }
                                     if (string.Equals(source, "USER_EXPLICIT", StringComparison.OrdinalIgnoreCase))
                                     {
@@ -661,8 +851,9 @@ public sealed class TranscriptDiscovery
                                 else if (!isHead && string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase))
                                 {
                                     pendingQuestion = null;
-                                    pendingQuestionToolCount = 0;
-                                    completedGenericSinceQuestion = 0;
+                                    pendingApproval = null;
+                                    pendingToolCallCount = 0;
+                                    completedGenericSincePlanner = 0;
 
                                     if (root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String &&
                                         !string.IsNullOrWhiteSpace(mEl.GetString()))
@@ -680,6 +871,12 @@ public sealed class TranscriptDiscovery
                                     string? toolName = null;
                                     int toolCallCount = 0;
                                     List<PendingQuestionItem>? askQuestions = null;
+                                    PendingApprovalRequest? newStepApproval = null;
+                                    PendingApprovalRequest? newPlanFeedback = null;
+
+                                    var stepKey = stepIndex >= 0
+                                        ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                        : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
 
                                     if (root.TryGetProperty("tool_calls", out var tcEl) && tcEl.ValueKind == JsonValueKind.Array)
                                     {
@@ -687,19 +884,116 @@ public sealed class TranscriptDiscovery
                                         {
                                             hasTools = true;
                                             toolCallCount++;
-                                            if (tc.ValueKind == JsonValueKind.Object &&
-                                                tc.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String)
+                                            if (tc.ValueKind != JsonValueKind.Object ||
+                                                !tc.TryGetProperty("name", out var nEl) || nEl.ValueKind != JsonValueKind.String)
                                             {
-                                                var currentTool = nEl.GetString();
-                                                toolName = currentTool;
-                                                if (IsQuestionToolName(currentTool))
+                                                continue;
+                                            }
+
+                                            var currentTool = nEl.GetString() ?? "";
+                                            toolName = currentTool;
+                                            var hasArgs = tc.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Object;
+
+                                            // 1. Structured question / option tool (ask_question, AskUserQuestion, or any tool with questions/options/choices)
+                                            if (HookPayloadDecoder.IsQuestionToolName(currentTool))
+                                            {
+                                                askQuestions ??= new List<PendingQuestionItem>();
+                                                if (hasArgs) HookPayloadDecoder.ExtractQuestions(argsEl, askQuestions);
+                                            }
+                                            else if (hasArgs)
+                                            {
+                                                // Any other tool that explicitly carries questions or selectable options/choices
+                                                var genericQs = new List<PendingQuestionItem>();
+                                                HookPayloadDecoder.ExtractQuestions(argsEl, genericQs);
+                                                if (genericQs.Count > 0)
                                                 {
                                                     askQuestions ??= new List<PendingQuestionItem>();
-                                                    if (tc.TryGetProperty("args", out var argsEl))
-                                                    {
-                                                        HookPayloadDecoder.ExtractQuestions(argsEl, askQuestions);
-                                                    }
+                                                    askQuestions.AddRange(genericQs);
                                                 }
+                                            }
+
+                                            // 2. Command execution requiring manual user approval (BypassSandbox: true or SafeToAutoRun: false)
+                                            if (hasArgs &&
+                                                (string.Equals(currentTool, "run_command", StringComparison.OrdinalIgnoreCase) ||
+                                                 string.Equals(currentTool, "execute_command", StringComparison.OrdinalIgnoreCase)))
+                                            {
+                                                bool bypassSandbox = TryParseAntigravityArgBool(argsEl, "BypassSandbox") == true;
+                                                bool unsafeAutoRun = TryParseAntigravityArgBool(argsEl, "SafeToAutoRun") == false;
+                                                if (bypassSandbox || unsafeAutoRun)
+                                                {
+                                                    var cmdLine = TryParseAntigravityArgString(argsEl, "CommandLine", "command", "Command");
+                                                    var summary = TryParseAntigravityArgString(argsEl, "toolSummary", "Description", "description")
+                                                                  ?? Localization.Strings.Get("CommandApprovalSummary");
+                                                    newStepApproval = new PendingApprovalRequest
+                                                    {
+                                                        RequestId = $"aga-{sessionId}-{stepKey}",
+                                                        SessionId = sessionId,
+                                                        Source = AgentSource.Antigravity,
+                                                        HookEventName = "PermissionRequest",
+                                                        ToolName = currentTool,
+                                                        Summary = HookPayloadDecoder.Clip(summary, 160),
+                                                        CommandOrDetails = HookPayloadDecoder.Clip(cmdLine, 260),
+                                                        Options =
+                                                        [
+                                                            new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") },
+                                                            new QuestionOption { Label = Localization.Strings.Get("OptionAllowAlways") },
+                                                            new QuestionOption { Label = Localization.Strings.Get("OptionDeny") }
+                                                        ],
+                                                        IsBlocking = false,
+                                                        CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                                    };
+                                                }
+                                            }
+
+                                            // 3. Plan / artifact feedback request (write_file / edit_file with ArtifactMetadata.RequestFeedback: true -> Proceed button)
+                                            if (hasArgs &&
+                                                (string.Equals(currentTool, "write_file", StringComparison.OrdinalIgnoreCase) ||
+                                                 string.Equals(currentTool, "edit_file", StringComparison.OrdinalIgnoreCase)) &&
+                                                TryExtractArtifactFeedbackRequest(argsEl, out var artifactName, out var artifactSummary))
+                                            {
+                                                newPlanFeedback = new PendingApprovalRequest
+                                                {
+                                                    RequestId = $"agp-{sessionId}-{stepKey}",
+                                                    SessionId = sessionId,
+                                                    Source = AgentSource.Antigravity,
+                                                    HookEventName = "PermissionRequest",
+                                                    ToolName = string.IsNullOrWhiteSpace(artifactName) ? "Plan" : artifactName,
+                                                    Summary = !string.IsNullOrWhiteSpace(artifactSummary)
+                                                        ? HookPayloadDecoder.Clip(artifactSummary, 160)
+                                                        : Localization.Strings.Get("PlanApprovalSummary"),
+                                                    Options =
+                                                    [
+                                                        new QuestionOption { Label = Localization.Strings.Get("OptionProceedPlan") },
+                                                        new QuestionOption { Label = Localization.Strings.Get("OptionRequestChanges") }
+                                                    ],
+                                                    IsBlocking = false,
+                                                    CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                                };
+                                            }
+
+                                            // 4. notify_user with BlockedOnUser: true (Antigravity IDE / Agent Manager review confirmation)
+                                            if (hasArgs &&
+                                                string.Equals(currentTool, "notify_user", StringComparison.OrdinalIgnoreCase) &&
+                                                TryParseAntigravityArgBool(argsEl, "BlockedOnUser") == true)
+                                            {
+                                                var notifyMsg = TryParseAntigravityArgString(argsEl, "Message", "message")
+                                                                ?? Localization.Strings.Get("PlanApprovalSummary");
+                                                newPlanFeedback = new PendingApprovalRequest
+                                                {
+                                                    RequestId = $"agn-{sessionId}-{stepKey}",
+                                                    SessionId = sessionId,
+                                                    Source = AgentSource.Antigravity,
+                                                    HookEventName = "PermissionRequest",
+                                                    ToolName = "notify_user",
+                                                    Summary = HookPayloadDecoder.Clip(notifyMsg, 180),
+                                                    Options =
+                                                    [
+                                                        new QuestionOption { Label = Localization.Strings.Get("OptionProceedPlan") },
+                                                        new QuestionOption { Label = Localization.Strings.Get("OptionRequestChanges") }
+                                                    ],
+                                                    IsBlocking = false,
+                                                    CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                                };
                                             }
                                         }
                                     }
@@ -720,9 +1014,6 @@ public sealed class TranscriptDiscovery
                                                 Question = Localization.Strings.Get("QuestionHint")
                                             });
                                         }
-                                        var stepKey = stepIndex >= 0
-                                            ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                                            : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
                                         pendingQuestion = new PendingQuestionRequest
                                         {
                                             RequestId = $"agq-{sessionId}-{stepKey}",
@@ -732,8 +1023,23 @@ public sealed class TranscriptDiscovery
                                             IsBlocking = false,
                                             CreatedAt = lineTs ?? DateTimeOffset.UtcNow
                                         };
-                                        pendingQuestionToolCount = Math.Max(1, toolCallCount);
+                                        pendingToolCallCount = Math.Max(1, toolCallCount);
                                         toolName = "ask_question";
+                                    }
+                                    else if (newStepApproval != null)
+                                    {
+                                        pendingApproval = newStepApproval;
+                                        pendingToolCallCount = Math.Max(1, toolCallCount);
+                                    }
+
+                                    if (newPlanFeedback != null)
+                                    {
+                                        pendingPlanFeedback = newPlanFeedback;
+                                    }
+                                    else if (hasTools)
+                                    {
+                                        // Agent kept executing new tools after the plan artifact; clear old plan feedback banner.
+                                        pendingPlanFeedback = null;
                                     }
 
                                     lastHasToolCalls = hasTools;
@@ -741,41 +1047,83 @@ public sealed class TranscriptDiscovery
                                 }
                                 else if (!isHead && string.Equals(type, "GENERIC", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    if (pendingQuestion != null)
+                                    var genericContent = root.TryGetProperty("content", out var gcEl) && gcEl.ValueKind == JsonValueKind.String
+                                        ? gcEl.GetString() ?? ""
+                                        : "";
+                                    bool stepFinished =
+                                        string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
+                                        string.Equals(status, "CANCELED", StringComparison.OrdinalIgnoreCase);
+
+                                    // For run_command BypassSandbox approvals, once Antigravity writes a RUNNING background task
+                                    // or DONE command output, the user already clicked Allow/Deny.
+                                    bool commandAlreadyStarted =
+                                        stepFinished ||
+                                        (string.Equals(status, "RUNNING", StringComparison.OrdinalIgnoreCase) &&
+                                         genericContent.Contains("Tool is running", StringComparison.OrdinalIgnoreCase));
+
+                                    if (pendingQuestion != null && stepFinished)
                                     {
-                                        bool stepFinished =
-                                            string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
-                                            string.Equals(status, "CANCELED", StringComparison.OrdinalIgnoreCase);
+                                        completedGenericSincePlanner++;
+                                        bool looksLikeQuestionAnswer =
+                                            genericContent.Contains("\nA1:", StringComparison.Ordinal) ||
+                                            genericContent.StartsWith("A1:", StringComparison.Ordinal) ||
+                                            genericContent.Contains("User cancelled", StringComparison.OrdinalIgnoreCase);
 
-                                        if (stepFinished)
+                                        if (pendingToolCallCount <= 1 ||
+                                            completedGenericSincePlanner >= pendingToolCallCount ||
+                                            looksLikeQuestionAnswer)
                                         {
-                                            completedGenericSinceQuestion++;
-                                            var genericContent = root.TryGetProperty("content", out var gcEl) && gcEl.ValueKind == JsonValueKind.String
-                                                ? gcEl.GetString() ?? ""
-                                                : "";
-                                            bool looksLikeQuestionAnswer =
-                                                genericContent.Contains("\nA1:", StringComparison.Ordinal) ||
-                                                genericContent.StartsWith("A1:", StringComparison.Ordinal) ||
-                                                genericContent.Contains("User cancelled", StringComparison.OrdinalIgnoreCase);
-
-                                            if (pendingQuestionToolCount <= 1 ||
-                                                completedGenericSinceQuestion >= pendingQuestionToolCount ||
-                                                looksLikeQuestionAnswer)
-                                            {
-                                                pendingQuestion = null;
-                                                pendingQuestionToolCount = 0;
-                                                completedGenericSinceQuestion = 0;
-                                            }
+                                            pendingQuestion = null;
+                                            pendingToolCallCount = 0;
+                                            completedGenericSincePlanner = 0;
                                         }
+                                    }
+
+                                    if (pendingApproval != null && commandAlreadyStarted)
+                                    {
+                                        completedGenericSincePlanner++;
+                                        if (pendingToolCallCount <= 1 || completedGenericSincePlanner >= pendingToolCallCount)
+                                        {
+                                            pendingApproval = null;
+                                            pendingToolCallCount = 0;
+                                            completedGenericSincePlanner = 0;
+                                        }
+                                    }
+
+                                    if (pendingQuestion == null && pendingApproval == null && IsWaitingStatus(status))
+                                    {
+                                        var stepKey = stepIndex >= 0
+                                            ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                            : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                        pendingApproval = new PendingApprovalRequest
+                                        {
+                                            RequestId = $"agw-{sessionId}-{stepKey}",
+                                            SessionId = sessionId,
+                                            Source = AgentSource.Antigravity,
+                                            HookEventName = "PermissionRequest",
+                                            ToolName = activeToolName ?? surfaceName,
+                                            Summary = !string.IsNullOrWhiteSpace(genericContent)
+                                                ? HookPayloadDecoder.Clip(genericContent, 160)
+                                                : Localization.Strings.Get("ApproveHint"),
+                                            Options =
+                                            [
+                                                new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") },
+                                                new QuestionOption { Label = Localization.Strings.Get("OptionDeny") }
+                                            ],
+                                            IsBlocking = false,
+                                            CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                        };
                                     }
                                 }
                                 else if (!isHead && string.Equals(type, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase))
                                 {
                                     pendingQuestion = null;
-                                    pendingQuestionToolCount = 0;
-                                    completedGenericSinceQuestion = 0;
+                                    pendingApproval = null;
+                                    pendingPlanFeedback = null;
+                                    pendingToolCallCount = 0;
+                                    completedGenericSincePlanner = 0;
                                 }
 
                                 if (!isHead)
@@ -811,17 +1159,25 @@ public sealed class TranscriptDiscovery
                         }
                         if (updatedAt.UtcDateTime < cutoffUtc) continue;
 
+                        // If no live tool approval is active, surface a pending plan/artifact feedback card (Proceed).
+                        var effectiveApproval = pendingApproval ?? pendingPlanFeedback;
+
                         var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
-                        if (pendingQuestion != null && idleSeconds >= 1800)
+                        if (idleSeconds >= 1800)
                         {
-                            // Avoid surfacing abandoned questions older than 30 minutes.
+                            // Avoid surfacing abandoned questions/approvals older than 30 minutes.
                             pendingQuestion = null;
+                            effectiveApproval = null;
                         }
 
                         SessionPhase phase;
                         if (pendingQuestion != null)
                         {
                             phase = SessionPhase.WaitingForAnswer;
+                        }
+                        else if (effectiveApproval != null)
+                        {
+                            phase = SessionPhase.WaitingForApproval;
                         }
                         else if (string.Equals(lastType, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase) ||
                                  string.Equals(lastStatus, "ERROR", StringComparison.OrdinalIgnoreCase))
@@ -848,13 +1204,15 @@ public sealed class TranscriptDiscovery
                         var title = HookPayloadDecoder.Clip(firstUserPrompt ?? effectivePrompt, 90);
                         var statusSummary = pendingQuestion != null
                             ? HookPayloadDecoder.Clip(pendingQuestion.Questions.FirstOrDefault()?.Question ?? Localization.Strings.Get("QuestionHint"), 160)
-                            : phase == SessionPhase.Running && !string.IsNullOrWhiteSpace(activeToolName)
-                                ? $"Running {activeToolName}"
-                                : !string.IsNullOrWhiteSpace(lastAssistant)
-                                    ? HookPayloadDecoder.Clip(lastAssistant, 160)
-                                    : !string.IsNullOrWhiteSpace(effectivePrompt)
-                                        ? HookPayloadDecoder.Clip(effectivePrompt, 160)
-                                        : $"{surfaceName} session";
+                            : effectiveApproval != null
+                                ? HookPayloadDecoder.Clip(effectiveApproval.Summary, 160)
+                                : phase == SessionPhase.Running && !string.IsNullOrWhiteSpace(activeToolName)
+                                    ? $"Running {activeToolName}"
+                                    : !string.IsNullOrWhiteSpace(lastAssistant)
+                                        ? HookPayloadDecoder.Clip(lastAssistant, 160)
+                                        : !string.IsNullOrWhiteSpace(effectivePrompt)
+                                            ? HookPayloadDecoder.Clip(effectivePrompt, 160)
+                                            : $"{surfaceName} session";
 
                         results.Add(new AgentSession
                         {
@@ -863,12 +1221,13 @@ public sealed class TranscriptDiscovery
                             Title = title,
                             Model = model,
                             TranscriptPath = transcriptPath,
-                            ActiveToolName = phase is SessionPhase.Running or SessionPhase.WaitingForAnswer ? activeToolName : null,
+                            ActiveToolName = phase is SessionPhase.Running or SessionPhase.WaitingForAnswer or SessionPhase.WaitingForApproval ? activeToolName : null,
                             LastPrompt = HookPayloadDecoder.Clip(effectivePrompt, 160),
                             LastAssistantMessage = lastAssistant,
                             StatusSummary = statusSummary,
                             Phase = phase,
                             PendingQuestion = pendingQuestion,
+                            PendingApproval = effectiveApproval,
                             UpdatedAt = updatedAt,
                             CreatedAt = createdAt ?? new DateTimeOffset(info.CreationTimeUtc, TimeSpan.Zero),
                             Terminal = new TerminalMetadata
@@ -892,14 +1251,201 @@ public sealed class TranscriptDiscovery
         }
     }
 
-    private static bool IsQuestionToolName(string? toolName)
+    private static void TryExtractDshPendingInteraction(
+        string sessionId,
+        JsonElement approvalState,
+        out PendingQuestionRequest? question,
+        out PendingApprovalRequest? approval)
     {
-        if (string.IsNullOrWhiteSpace(toolName)) return false;
-        var clean = toolName.Trim();
-        return string.Equals(clean, "ask_question", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(clean, "AskUserQuestion", StringComparison.OrdinalIgnoreCase)
-               || clean.EndsWith(":ask_question", StringComparison.OrdinalIgnoreCase)
-               || clean.EndsWith(".ask_question", StringComparison.OrdinalIgnoreCase);
+        question = null;
+        approval = null;
+
+        // Check nested pending request containers or root approvalState object
+        JsonElement container = approvalState;
+        bool hasExplicitPendingObj = false;
+        bool matchedQuestionKey = false;
+        foreach (var key in new[] { "pendingQuestion", "question", "pendingApproval", "pendingRequest", "pending", "currentRequest", "request", "approval" })
+        {
+            if (approvalState.TryGetProperty(key, out var sub) && sub.ValueKind == JsonValueKind.Object)
+            {
+                container = sub;
+                hasExplicitPendingObj = true;
+                matchedQuestionKey = key is "pendingQuestion" or "question";
+                break;
+            }
+        }
+
+        bool isWaiting = hasExplicitPendingObj;
+        if (!isWaiting)
+        {
+            if (approvalState.TryGetProperty("waitingForApproval", out var wfa) && wfa.ValueKind == JsonValueKind.True) isWaiting = true;
+            if (approvalState.TryGetProperty("waitingForUser", out var wfu) && wfu.ValueKind == JsonValueKind.True) isWaiting = true;
+            if (approvalState.TryGetProperty("pendingCount", out var pc) && pc.TryGetInt32(out var pcVal) && pcVal > 0) isWaiting = true;
+            if (approvalState.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.String && IsWaitingStatus(st.GetString())) isWaiting = true;
+        }
+        if (!isWaiting) return;
+
+        var rawSig = container.GetRawText();
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawSig)))[..10].ToLowerInvariant();
+
+        bool looksLikeQuestion = matchedQuestionKey
+            || container.TryGetProperty("questions", out _)
+            || container.TryGetProperty("question", out _);
+
+        if (looksLikeQuestion)
+        {
+            var qs = new List<PendingQuestionItem>();
+            HookPayloadDecoder.ExtractQuestions(container, qs);
+            if (qs.Count == 0 && hasExplicitPendingObj)
+            {
+                HookPayloadDecoder.ExtractQuestions(approvalState, qs);
+            }
+
+            if (qs.Count > 0)
+            {
+                question = new PendingQuestionRequest
+                {
+                    RequestId = $"dsq-{sessionId}-{hash}",
+                    SessionId = sessionId,
+                    Source = AgentSource.DeepSeekHarness,
+                    Questions = qs,
+                    IsBlocking = false,
+                    CreatedAt = DateTimeOffset.UtcNow
+                };
+                return;
+            }
+        }
+
+        var opts = new List<QuestionOption>();
+        HookPayloadDecoder.ExtractApprovalOptions(container, opts);
+        if (opts.Count == 0)
+        {
+            opts.Add(new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") });
+            opts.Add(new QuestionOption { Label = Localization.Strings.Get("OptionDeny") });
+        }
+
+        var toolName = TryParseAntigravityArgString(container, "toolName", "tool_name", "tool", "action") ?? "DeepSeek Harness";
+        var summary = TryParseAntigravityArgString(container, "summary", "title", "message", "description", "reason")
+                      ?? Localization.Strings.Get("ApproveHint");
+        var details = TryParseAntigravityArgString(container, "command", "CommandLine", "details", "input", "path");
+
+        approval = new PendingApprovalRequest
+        {
+            RequestId = $"dsa-{sessionId}-{hash}",
+            SessionId = sessionId,
+            Source = AgentSource.DeepSeekHarness,
+            HookEventName = "PermissionRequest",
+            ToolName = toolName,
+            Summary = HookPayloadDecoder.Clip(summary, 160),
+            CommandOrDetails = HookPayloadDecoder.Clip(details, 260),
+            Options = opts,
+            IsBlocking = false,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private static bool IsWaitingStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status)) return false;
+        var s = status.Trim().ToUpperInvariant();
+        return s.Contains("WAIT") || s.Contains("PENDING") || s.Contains("APPROV") || s.Contains("BLOCKED");
+    }
+
+    private static bool? TryParseAntigravityArgBool(JsonElement argsObj, string propertyName)
+    {
+        if (!argsObj.TryGetProperty(propertyName, out var el)) return null;
+        if (el.ValueKind == JsonValueKind.True) return true;
+        if (el.ValueKind == JsonValueKind.False) return false;
+        if (el.ValueKind == JsonValueKind.String)
+        {
+            var raw = UnquoteJsonArgString(el.GetString());
+            if (bool.TryParse(raw, out var b)) return b;
+        }
+        return null;
+    }
+
+    private static string? TryParseAntigravityArgString(JsonElement argsObj, params string[] propertyNames)
+    {
+        foreach (var name in propertyNames)
+        {
+            if (argsObj.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String)
+            {
+                var unquoted = UnquoteJsonArgString(el.GetString());
+                if (!string.IsNullOrWhiteSpace(unquoted)) return unquoted;
+            }
+        }
+        return null;
+    }
+
+    private static string UnquoteJsonArgString(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var trimmed = raw.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+        {
+            try
+            {
+                var decoded = JsonSerializer.Deserialize<string>(trimmed);
+                if (decoded != null) return decoded.Trim();
+            }
+            catch
+            {
+                return trimmed[1..^1].Trim();
+            }
+        }
+        return trimmed;
+    }
+
+    private static bool TryExtractArtifactFeedbackRequest(
+        JsonElement argsObj,
+        out string? artifactName,
+        out string? summary)
+    {
+        artifactName = null;
+        summary = null;
+        if (!argsObj.TryGetProperty("ArtifactMetadata", out var metaEl)) return false;
+
+        try
+        {
+            JsonElement metaObj;
+            JsonDocument? parsedDoc = null;
+            try
+            {
+                if (metaEl.ValueKind == JsonValueKind.Object)
+                {
+                    metaObj = metaEl;
+                }
+                else if (metaEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(metaEl.GetString()))
+                {
+                    parsedDoc = JsonDocument.Parse(metaEl.GetString()!);
+                    metaObj = parsedDoc.RootElement;
+                }
+                else
+                {
+                    return false;
+                }
+
+                if (metaObj.ValueKind != JsonValueKind.Object) return false;
+                bool reqFeedback = TryParseAntigravityArgBool(metaObj, "RequestFeedback") == true;
+                if (!reqFeedback) return false;
+
+                summary = TryParseAntigravityArgString(metaObj, "Summary", "summary");
+                var path = TryParseAntigravityArgString(argsObj, "Path", "path");
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    artifactName = Path.GetFileName(path);
+                }
+                return true;
+            }
+            finally
+            {
+                parsedDoc?.Dispose();
+            }
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void TryRecoverAntigravityQuestionsFromFullTranscript(
@@ -929,7 +1475,7 @@ public sealed class TranscriptDiscovery
                             if (tc.ValueKind == JsonValueKind.Object &&
                                 tc.TryGetProperty("name", out var nEl) &&
                                 nEl.ValueKind == JsonValueKind.String &&
-                                IsQuestionToolName(nEl.GetString()) &&
+                                HookPayloadDecoder.IsQuestionToolName(nEl.GetString()) &&
                                 tc.TryGetProperty("args", out var argsEl))
                             {
                                 HookPayloadDecoder.ExtractQuestions(argsEl, target);

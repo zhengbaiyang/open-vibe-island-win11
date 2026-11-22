@@ -87,11 +87,33 @@ public sealed class CodexAppServerClient : IDisposable
 
             string? threadId = null;
             string? cwd = null;
+            string? command = null;
+            string? reason = null;
+            string? toolName = null;
+            var questions = new List<PendingQuestionItem>();
+            var approvalOptions = new List<QuestionOption>();
+
             if (root.TryGetProperty("params", out var p) && p.ValueKind == JsonValueKind.Object)
             {
                 if (p.TryGetProperty("threadId", out var tid)) threadId = tid.GetString();
                 else if (p.TryGetProperty("thread_id", out var tid2)) threadId = tid2.GetString();
+                else if (p.TryGetProperty("conversationId", out var cid)) threadId = cid.GetString();
                 if (p.TryGetProperty("cwd", out var c)) cwd = c.GetString();
+
+                if (p.TryGetProperty("command", out var cmdEl))
+                {
+                    command = cmdEl.ValueKind == JsonValueKind.String ? cmdEl.GetString() : cmdEl.GetRawText();
+                }
+                if (p.TryGetProperty("reason", out var rEl) && rEl.ValueKind == JsonValueKind.String)
+                {
+                    reason = rEl.GetString();
+                }
+                if (p.TryGetProperty("toolName", out var tnEl) && tnEl.ValueKind == JsonValueKind.String)
+                {
+                    toolName = tnEl.GetString();
+                }
+                HookPayloadDecoder.ExtractQuestions(p, questions);
+                HookPayloadDecoder.ExtractApprovalOptions(p, approvalOptions);
             }
 
             if (string.IsNullOrWhiteSpace(threadId)) return;
@@ -102,10 +124,27 @@ public sealed class CodexAppServerClient : IDisposable
                 "turn/started" => "UserPromptSubmit",
                 "turn/completed" => "Stop",
                 "thread/closed" => "SessionEnd",
+                "item/commandExecution/requestApproval" or "execCommandApproval" => "PermissionRequest",
+                "item/fileChange/requestApproval" or "applyPatchApproval" => "PermissionRequest",
+                "item/tool/requestUserInput" or "request_user_input" => "QuestionRequest",
+                "item/completed" => "PostToolUse",
                 _ => null
             };
 
             if (mappedEvent == null) return;
+
+            if (mappedEvent == "PermissionRequest")
+            {
+                bool isFileChange = method.Contains("fileChange", StringComparison.OrdinalIgnoreCase)
+                                    || method.Contains("Patch", StringComparison.OrdinalIgnoreCase);
+                toolName ??= isFileChange ? "FileChange" : "CommandExecution";
+                if (approvalOptions.Count == 0)
+                {
+                    approvalOptions.Add(new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") });
+                    approvalOptions.Add(new QuestionOption { Label = Localization.Strings.Get("OptionAllowAlways") });
+                    approvalOptions.Add(new QuestionOption { Label = Localization.Strings.Get("OptionDeny") });
+                }
+            }
 
             _reducer.ApplyHookEvent(new NormalizedHookEvent
             {
@@ -114,6 +153,12 @@ public sealed class CodexAppServerClient : IDisposable
                 SessionId = threadId,
                 ThreadId = threadId,
                 Cwd = cwd,
+                ToolName = toolName,
+                ToolInputPreview = command ?? reason,
+                Title = reason,
+                Questions = questions,
+                ApprovalOptions = approvalOptions,
+                ExpectsBlockingDirective = false,
                 Terminal = new TerminalMetadata
                 {
                     IsDesktopApp = true,

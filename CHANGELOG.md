@@ -4,6 +4,24 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.8] - 2026-11-22
+
+### ✨ 全平台交互选项与审批完整接入 / All-Platform Options & Approvals
+
+- **Google Antigravity 全部待选 / 待审批交互完整支持**：
+  - 除 `/grill-me`（`ask_question`）外，新增识别 **沙箱外命令审批**（`run_command` `BypassSandbox: true` / `SafeToAutoRun: false`，展示「允许一次 / 始终允许 / 拒绝」）、**计划 / 产物审阅确认**（`write_file` / `edit_file` `ArtifactMetadata.RequestFeedback: true`，展示「继续执行 (Proceed) / 提出修改意见」）、**`notify_user`（`BlockedOnUser: true`）** 以及任何携带 `options` / `choices` / `questions` 参数或处于 `WAITING / PENDING / APPROVAL` 状态的工具调用；在客户端完成操作后自动消隐。
+  - **Complete Google Antigravity interactive coverage**: in addition to `/grill-me` (`ask_question`), now detects sandbox-bypass command approvals (`BypassSandbox: true` / `SafeToAutoRun: false`), plan/artifact feedback prompts (`RequestFeedback: true` / Proceed), `notify_user` (`BlockedOnUser: true`), and any tool exposing `options`/`choices`/`questions` or waiting states, auto-clearing once resolved.
+- **全平台（17 个 Agent）选项接入与响应链路修复**：
+  - **Claude Code & 全部 Claude 分支（Qoder / Qwen / Factory / CodeBuddy / Kimi）**：补齐阻塞型 `QuestionRequest` 标准输出指令编码（`DirectiveEncoder.EncodeQuestionAnswer` + `BridgeServer.ResolveQuestion`），同时支持本地 `.jsonl` 日志离线发现未回答的 `AskUserQuestion` 与 `ExitPlanMode` 计划确认卡片。
+  - **Codex CLI & Desktop**：`CodexAppServerClient` 接入 `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/tool/requestUserInput` 实时 JSON-RPC 审批与提问选项；`hooks.json` 补全 `PreToolUse` / `PostToolUse`；本地 `rollout-*.jsonl` 支持发现未回答的 `request_user_input` 选项。
+  - **DeepSeek Harness（DSH）**：解析本地 `approvalState` 中的待审批命令与待选问题及自定义选项列表，直接呈现于灵动岛。
+  - **OpenCode / Hermes / Gemini CLI / Cursor / Pi / OMP**：OpenCode 插件新增 `permission.asked` / `permission.replied` / `question.asked` / `question.replied` 事件转发；Gemini CLI 补全 `BeforeTool` / `AfterTool` 钩子；统一解析 `choices` / `availableDecisions` / `permission_suggestions` / `actions` / `buttons` 等多平台选项字段。
+  - **Unified cross-platform option ingestion & responses**: fixed blocking question `StdoutDirective` encoding for Claude/Codex/forks, added Codex app-server & rollout interactive approval/user-input support, Claude local transcript `AskUserQuestion`/`ExitPlanMode` discovery, DeepSeek Harness `approvalState` options, OpenCode permission/question plugin events, Gemini `BeforeTool`/`AfterTool` hooks, and Hermes `choices` parsing.
+- **灵动岛选项与审批卡片升级**：
+  - 审批卡片支持完整展示自定义可选列表，并自动区分「阻塞型原地审批」与「观察型一键切回处理 + 忽略」；
+  - 阻塞型问题卡片新增 **多选（Multi-select）与多题合并勾选**（选中项显示 `✓` 高亮，点击「提交所选」一次性回传）。
+  - **Upgraded Island cards**: approval cards now display platform-provided decision options with blocking vs. observational handling, and blocking question cards support multi-select and multi-question batch submission.
+
 ## [0.1.7] - 2026-11-22
 
 ### 🎨 界面优化 / UI Improvements
@@ -65,6 +83,7 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.8]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.4...v0.1.5

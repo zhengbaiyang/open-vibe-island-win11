@@ -146,6 +146,43 @@ async function openIslandServer() {
           }
           break;
         }
+
+        case "permission.asked":
+        case "permission.updated": {
+          const req = props.request || props.permission || props;
+          send({
+            hook_event_name: "PermissionRequest",
+            session_id: sessionId,
+            cwd: s.cwd,
+            tool_name: req.permission || req.tool || req.type || "Action",
+            title: req.title || req.message || "Permission required",
+            tool_input: req.metadata || req.patterns || req.command || req,
+            options: req.options || ["Allow once", "Always allow", "Deny"],
+          });
+          break;
+        }
+
+        case "permission.replied":
+        case "question.replied": {
+          send({
+            hook_event_name: "PostToolUse",
+            session_id: sessionId,
+            cwd: s.cwd,
+          });
+          break;
+        }
+
+        case "question.asked": {
+          const req = props.request || props;
+          send({
+            hook_event_name: "QuestionRequest",
+            session_id: sessionId,
+            cwd: s.cwd,
+            questions: req.questions || props.questions || [],
+            tool_input: req,
+          });
+          break;
+        }
       }
     },
 

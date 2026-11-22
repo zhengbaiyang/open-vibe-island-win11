@@ -123,22 +123,22 @@ internal static class Program
         if (source is AgentSource.Claude or AgentSource.Qoder or AgentSource.Qwen
             or AgentSource.Factory or AgentSource.CodeBuddy or AgentSource.Kimi)
         {
-            return norm == "permissionrequest";
+            return norm is "permissionrequest" or "questionrequest";
         }
 
         if (source == AgentSource.Codex)
         {
-            return norm == "permissionrequest";
+            return norm is "permissionrequest" or "questionrequest";
         }
 
-        // Gemini, Grok, Hermes, Cursor, ZCode, Pi, OMP are fire-and-forget
+        // Gemini, Grok, Hermes, Cursor, ZCode, Pi, OMP, Antigravity are fire-and-forget / observational
         return false;
     }
 
     private static int ComputeTimeoutSeconds(AgentSource source, string eventName)
     {
         var norm = eventName.Trim().ToLowerInvariant().Replace("_", "");
-        if (norm == "permissionrequest")
+        if (norm is "permissionrequest" or "questionrequest")
         {
             if (source == AgentSource.Codex) return 3600;       // 1 hour
             return 86400;                                        // 24 hours (Claude & forks)

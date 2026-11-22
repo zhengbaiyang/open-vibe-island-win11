@@ -34,6 +34,7 @@ public sealed class PendingApprovalRequest
     public string ToolName { get; set; } = "";
     public string Summary { get; set; } = "";
     public string? CommandOrDetails { get; set; }
+    public List<QuestionOption> Options { get; set; } = new();
     public bool IsBlocking { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

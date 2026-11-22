@@ -22,10 +22,11 @@ public sealed class SessionStateReducer
     private readonly Dictionary<string, string> _sessionAliases = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Tracks observational/transcript-discovered question IDs that have already been
+    /// Tracks observational/transcript-discovered question &amp; approval IDs that have already been
     /// dismissed or resolved so subsequent polling ticks do not re-surface the same prompt.
     /// </summary>
     private readonly HashSet<string> _dismissedQuestionIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _dismissedApprovalIds = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Merge recurring generic-titled sessions ("new-chat", empty title, …) of the same
@@ -201,6 +202,7 @@ public sealed class SessionStateReducer
                     session.Phase = SessionPhase.Ended;
                     session.ActiveToolName = null;
                     session.ActiveToolPreview = null;
+                    RememberClearedApproval(session.PendingApproval);
                     session.PendingApproval = null;
                     RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
@@ -208,6 +210,7 @@ public sealed class SessionStateReducer
 
                 case "UserPromptSubmit":
                     session.Phase = SessionPhase.Running;
+                    RememberClearedApproval(session.PendingApproval);
                     session.PendingApproval = null;
                     RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
@@ -222,12 +225,9 @@ public sealed class SessionStateReducer
                     session.ActiveToolName = evt.ToolName ?? "tool";
                     session.ActiveToolPreview = evt.ToolInputPreview;
 
-                    // Hermes `clarify`, Claude `AskUserQuestion`, or Antigravity `ask_question` surfaces HITL question card
-                    if ((evt.Source == AgentSource.Hermes && string.Equals(evt.ToolName, "clarify", StringComparison.OrdinalIgnoreCase))
-                        || string.Equals(evt.ToolName, "AskUserQuestion", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(evt.ToolName, "ask_question", StringComparison.OrdinalIgnoreCase)
-                        || (evt.ToolName?.EndsWith(":ask_question", StringComparison.OrdinalIgnoreCase) == true)
-                        || evt.Questions.Count > 0)
+                    // Universal HITL question tool detection across all 17 platforms
+                    // (Claude AskUserQuestion, Antigravity ask_question, Codex request_user_input, Hermes clarify, OpenCode question, Gemini ask_user, etc.)
+                    if (HookPayloadDecoder.IsQuestionToolName(evt.ToolName) || evt.Questions.Count > 0)
                     {
                         session.Phase = SessionPhase.WaitingForAnswer;
                         newQuestion = new PendingQuestionRequest
@@ -238,12 +238,38 @@ public sealed class SessionStateReducer
                                 ? evt.Questions
                                 : new List<PendingQuestionItem>
                                 {
-                                    new() { Header = evt.ToolName ?? "Question", Question = evt.ToolInputPreview ?? "Agent needs your input" }
+                                    new() { Header = evt.ToolName ?? "Question", Question = evt.ToolInputPreview ?? Localization.Strings.Get("QuestionHint") }
                                 },
                             IsBlocking = evt.ExpectsBlockingDirective
                         };
                         session.PendingQuestion = newQuestion;
                         session.StatusSummary = newQuestion.Questions.FirstOrDefault()?.Question ?? "Waiting for answer";
+                    }
+                    else if (HookPayloadDecoder.IsPlanApprovalToolName(evt.ToolName))
+                    {
+                        session.Phase = SessionPhase.WaitingForApproval;
+                        var planOpts = evt.ApprovalOptions.Count > 0
+                            ? evt.ApprovalOptions
+                            : new List<QuestionOption>
+                            {
+                                new() { Label = Localization.Strings.Get("OptionProceedPlan") },
+                                new() { Label = Localization.Strings.Get("OptionRequestChanges") }
+                            };
+                        newApproval = new PendingApprovalRequest
+                        {
+                            SessionId = session.SessionId,
+                            Source = session.Source,
+                            HookEventName = "PreToolUse",
+                            ToolName = evt.ToolName ?? "Plan",
+                            Summary = !string.IsNullOrWhiteSpace(evt.Title)
+                                ? evt.Title
+                                : Localization.Strings.Get("PlanApprovalSummary"),
+                            CommandOrDetails = evt.ToolInputPreview,
+                            Options = planOpts,
+                            IsBlocking = evt.ExpectsBlockingDirective
+                        };
+                        session.PendingApproval = newApproval;
+                        session.StatusSummary = newApproval.Summary;
                     }
                     else
                     {
@@ -259,6 +285,7 @@ public sealed class SessionStateReducer
                     session.ActiveToolPreview = null;
                     if (session.Phase == SessionPhase.WaitingForApproval || session.Phase == SessionPhase.WaitingForAnswer)
                     {
+                        RememberClearedApproval(session.PendingApproval);
                         session.PendingApproval = null;
                         RememberClearedQuestion(session.PendingQuestion);
                         session.PendingQuestion = null;
@@ -288,6 +315,7 @@ public sealed class SessionStateReducer
                             ? evt.Title
                             : $"Approve {evt.ToolName ?? "command"}?",
                         CommandOrDetails = evt.ToolInputPreview ?? evt.Message,
+                        Options = evt.ApprovalOptions,
                         IsBlocking = evt.ExpectsBlockingDirective
                     };
                     session.PendingApproval = newApproval;
@@ -300,7 +328,12 @@ public sealed class SessionStateReducer
                     {
                         SessionId = session.SessionId,
                         Source = session.Source,
-                        Questions = evt.Questions,
+                        Questions = evt.Questions.Count > 0
+                            ? evt.Questions
+                            : new List<PendingQuestionItem>
+                            {
+                                new() { Header = evt.ToolName ?? "Question", Question = evt.Message ?? evt.Title ?? Localization.Strings.Get("QuestionHint") }
+                            },
                         IsBlocking = evt.ExpectsBlockingDirective
                     };
                     session.PendingQuestion = newQuestion;
@@ -308,6 +341,7 @@ public sealed class SessionStateReducer
                     break;
 
                 case "PermissionDenied":
+                    RememberClearedApproval(session.PendingApproval);
                     session.PendingApproval = null;
                     session.StatusSummary = "Permission denied";
                     break;
@@ -338,6 +372,45 @@ public sealed class SessionStateReducer
                             session.Phase = SessionPhase.Completed;
                         }
                     }
+                    else if (!string.IsNullOrWhiteSpace(evt.NotificationType) &&
+                             (evt.NotificationType.Contains("permission", StringComparison.OrdinalIgnoreCase) ||
+                              evt.NotificationType.Contains("elicitation", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        if (evt.Questions.Count > 0 && session.PendingQuestion == null)
+                        {
+                            session.Phase = SessionPhase.WaitingForAnswer;
+                            newQuestion = new PendingQuestionRequest
+                            {
+                                SessionId = session.SessionId,
+                                Source = session.Source,
+                                Questions = evt.Questions,
+                                IsBlocking = false
+                            };
+                            session.PendingQuestion = newQuestion;
+                        }
+                        else if (session.PendingApproval == null)
+                        {
+                            session.Phase = SessionPhase.WaitingForApproval;
+                            newApproval = new PendingApprovalRequest
+                            {
+                                SessionId = session.SessionId,
+                                Source = session.Source,
+                                HookEventName = "Notification",
+                                ToolName = evt.ToolName ?? evt.NotificationType,
+                                Summary = evt.Title ?? evt.Message ?? Localization.Strings.Get("ApproveHint"),
+                                CommandOrDetails = evt.ToolInputPreview ?? evt.Message,
+                                Options = evt.ApprovalOptions.Count > 0
+                                    ? evt.ApprovalOptions
+                                    : new List<QuestionOption>
+                                    {
+                                        new() { Label = Localization.Strings.Get("OptionAllowOnce") },
+                                        new() { Label = Localization.Strings.Get("OptionDeny") }
+                                    },
+                                IsBlocking = false
+                            };
+                            session.PendingApproval = newApproval;
+                        }
+                    }
                     if (!string.IsNullOrWhiteSpace(evt.Message))
                     {
                         session.StatusSummary = HookPayloadDecoder.Clip(evt.Message, 140);
@@ -360,6 +433,7 @@ public sealed class SessionStateReducer
                     session.Phase = isErr ? SessionPhase.Error : SessionPhase.Completed;
                     session.ActiveToolName = null;
                     session.ActiveToolPreview = null;
+                    RememberClearedApproval(session.PendingApproval);
                     session.PendingApproval = null;
                     RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
@@ -399,11 +473,18 @@ public sealed class SessionStateReducer
     {
         lock (_lock)
         {
+            if (!string.IsNullOrWhiteSpace(requestId))
+            {
+                _dismissedApprovalIds.Add(requestId);
+                if (_dismissedApprovalIds.Count > 500) _dismissedApprovalIds.Clear();
+            }
+
             if (_sessions.TryGetValue(sessionId, out var session) && session.PendingApproval?.RequestId == requestId)
             {
+                var wasBlocking = session.PendingApproval.IsBlocking;
                 session.PendingApproval = null;
-                session.Phase = allowed ? SessionPhase.Running : SessionPhase.Idle;
-                session.StatusSummary = allowed ? "Approved" : "Denied";
+                session.Phase = wasBlocking ? (allowed ? SessionPhase.Running : SessionPhase.Idle) : SessionPhase.Idle;
+                session.StatusSummary = wasBlocking ? (allowed ? "Approved" : "Denied") : session.StatusSummary;
                 session.UpdatedAt = DateTimeOffset.UtcNow;
             }
         }
@@ -438,9 +519,31 @@ public sealed class SessionStateReducer
         if (_dismissedQuestionIds.Count > 500) _dismissedQuestionIds.Clear();
     }
 
+    private void RememberClearedApproval(PendingApprovalRequest? pending)
+    {
+        if (pending is null || string.IsNullOrWhiteSpace(pending.RequestId)) return;
+        _dismissedApprovalIds.Add(pending.RequestId);
+        if (_dismissedApprovalIds.Count > 500) _dismissedApprovalIds.Clear();
+    }
+
+    private static bool IsTranscriptDiscoveredQuestionId(string requestId) =>
+        requestId.StartsWith("agq-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("clq-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("cxq-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("dsq-", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTranscriptDiscoveredApprovalId(string requestId) =>
+        requestId.StartsWith("aga-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("agp-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("agn-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("agw-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("clp-", StringComparison.OrdinalIgnoreCase) ||
+        requestId.StartsWith("dsa-", StringComparison.OrdinalIgnoreCase);
+
     public void UpsertDiscoveredSession(AgentSession discovered)
     {
         PendingQuestionRequest? newlyDiscoveredQuestion = null;
+        PendingApprovalRequest? newlyDiscoveredApproval = null;
 
         lock (_lock)
         {
@@ -449,7 +552,7 @@ public sealed class SessionStateReducer
                 discovered.SessionId = canonicalId;
             }
 
-            // Drop transcript-discovered questions that were already resolved or dismissed.
+            // Drop transcript-discovered questions/approvals that were already resolved or dismissed.
             if (discovered.PendingQuestion != null &&
                 !discovered.PendingQuestion.IsBlocking &&
                 _dismissedQuestionIds.Contains(discovered.PendingQuestion.RequestId))
@@ -457,7 +560,17 @@ public sealed class SessionStateReducer
                 discovered.PendingQuestion = null;
                 if (discovered.Phase == SessionPhase.WaitingForAnswer)
                 {
-                    discovered.Phase = SessionPhase.Idle;
+                    discovered.Phase = discovered.PendingApproval != null ? SessionPhase.WaitingForApproval : SessionPhase.Idle;
+                }
+            }
+            if (discovered.PendingApproval != null &&
+                !discovered.PendingApproval.IsBlocking &&
+                _dismissedApprovalIds.Contains(discovered.PendingApproval.RequestId))
+            {
+                discovered.PendingApproval = null;
+                if (discovered.Phase == SessionPhase.WaitingForApproval)
+                {
+                    discovered.Phase = discovered.PendingQuestion != null ? SessionPhase.WaitingForAnswer : SessionPhase.Idle;
                 }
             }
 
@@ -473,7 +586,7 @@ public sealed class SessionStateReducer
                 if (string.IsNullOrWhiteSpace(existing.Terminal.DeepLinkUrl) && !string.IsNullOrWhiteSpace(discovered.Terminal.DeepLinkUrl))
                     existing.Terminal.DeepLinkUrl = discovered.Terminal.DeepLinkUrl;
 
-                // Sync observational transcript-discovered questions (e.g. Antigravity ask_question / /grill-me)
+                // Sync observational transcript-discovered questions across all platforms
                 // even when the session also receives observational lifecycle hooks (IsHookManaged == true).
                 if (discovered.PendingQuestion != null)
                 {
@@ -491,13 +604,43 @@ public sealed class SessionStateReducer
                 }
                 else if (existing.PendingQuestion != null &&
                          !existing.PendingQuestion.IsBlocking &&
-                         existing.PendingQuestion.RequestId.StartsWith("agq-", StringComparison.OrdinalIgnoreCase))
+                         IsTranscriptDiscoveredQuestionId(existing.PendingQuestion.RequestId))
                 {
-                    // Transcript moved past the ask_question step (user selected an option in Antigravity).
                     RememberClearedQuestion(existing.PendingQuestion);
                     existing.PendingQuestion = null;
                     existing.ActiveToolName = discovered.ActiveToolName;
-                    existing.Phase = discovered.Phase;
+                    existing.Phase = existing.PendingApproval != null ? SessionPhase.WaitingForApproval : discovered.Phase;
+                    existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
+                    if (discovered.UpdatedAt > existing.UpdatedAt) existing.UpdatedAt = discovered.UpdatedAt;
+                }
+
+                // Sync observational transcript-discovered approvals (Antigravity BypassSandbox / Plan Proceed / notify_user,
+                // Claude ExitPlanMode, DeepSeek Harness approvalState) even when IsHookManaged == true.
+                if (discovered.PendingApproval != null)
+                {
+                    if (existing.PendingApproval == null ||
+                        (!existing.PendingApproval.IsBlocking &&
+                         !string.Equals(existing.PendingApproval.RequestId, discovered.PendingApproval.RequestId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        existing.PendingApproval = discovered.PendingApproval;
+                        if (existing.PendingQuestion == null)
+                        {
+                            existing.Phase = SessionPhase.WaitingForApproval;
+                        }
+                        existing.ActiveToolName = discovered.ActiveToolName ?? discovered.PendingApproval.ToolName;
+                        existing.StatusSummary = discovered.StatusSummary ?? discovered.PendingApproval.Summary;
+                        existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
+                        newlyDiscoveredApproval = discovered.PendingApproval;
+                    }
+                }
+                else if (existing.PendingApproval != null &&
+                         !existing.PendingApproval.IsBlocking &&
+                         IsTranscriptDiscoveredApprovalId(existing.PendingApproval.RequestId))
+                {
+                    RememberClearedApproval(existing.PendingApproval);
+                    existing.PendingApproval = null;
+                    existing.ActiveToolName = discovered.ActiveToolName;
+                    existing.Phase = existing.PendingQuestion != null ? SessionPhase.WaitingForAnswer : discovered.Phase;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
                     if (discovered.UpdatedAt > existing.UpdatedAt) existing.UpdatedAt = discovered.UpdatedAt;
                 }
@@ -528,9 +671,14 @@ public sealed class SessionStateReducer
 
                 // A previously expired conversation becomes visible again when it gets new
                 // activity (e.g. an automation thread that was idle for a while).
-                if (existing.Phase == SessionPhase.Ended && (discovered.UpdatedAt > existing.UpdatedAt || discovered.PendingQuestion != null))
+                if (existing.Phase == SessionPhase.Ended &&
+                    (discovered.UpdatedAt > existing.UpdatedAt || discovered.PendingQuestion != null || discovered.PendingApproval != null))
                 {
-                    existing.Phase = existing.PendingQuestion != null ? SessionPhase.WaitingForAnswer : discovered.Phase;
+                    existing.Phase = existing.PendingQuestion != null
+                        ? SessionPhase.WaitingForAnswer
+                        : existing.PendingApproval != null
+                            ? SessionPhase.WaitingForApproval
+                            : discovered.Phase;
                     existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
                     existing.LastPrompt = discovered.LastPrompt ?? existing.LastPrompt;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
@@ -572,6 +720,10 @@ public sealed class SessionStateReducer
                 {
                     newlyDiscoveredQuestion = discovered.PendingQuestion;
                 }
+                if (discovered.PendingApproval != null)
+                {
+                    newlyDiscoveredApproval = discovered.PendingApproval;
+                }
             }
         }
 
@@ -579,6 +731,10 @@ public sealed class SessionStateReducer
         if (newlyDiscoveredQuestion != null)
         {
             QuestionRequested?.Invoke(newlyDiscoveredQuestion);
+        }
+        if (newlyDiscoveredApproval != null)
+        {
+            ApprovalRequested?.Invoke(newlyDiscoveredApproval);
         }
     }
 
