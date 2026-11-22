@@ -336,41 +336,135 @@ public static class HookPayloadDecoder
         return Clip(el.GetRawText(), 240);
     }
 
-    private static void ExtractQuestions(JsonElement container, List<PendingQuestionItem> target)
+    public static void ExtractQuestions(JsonElement container, List<PendingQuestionItem> target)
     {
-        if (container.ValueKind != JsonValueKind.Object) return;
-        if (!TryGetProperty(container, out var qArr, "questions") || qArr.ValueKind != JsonValueKind.Array) return;
-
-        foreach (var item in qArr.EnumerateArray())
+        if (container.ValueKind == JsonValueKind.String)
         {
-            if (item.ValueKind != JsonValueKind.Object) continue;
-            var q = new PendingQuestionItem
+            var raw = container.GetString();
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            try
             {
-                Header = GetString(item, "header") ?? "",
-                Question = GetString(item, "question", "text") ?? "",
-                MultiSelect = GetBool(item, "multi_select", "multiSelect")
-            };
-            if (TryGetProperty(item, out var opts, "options") && opts.ValueKind == JsonValueKind.Array)
+                using var inner = JsonDocument.Parse(raw);
+                ExtractQuestions(inner.RootElement, target);
+            }
+            catch { }
+            return;
+        }
+
+        if (container.ValueKind == JsonValueKind.Array)
+        {
+            ExtractQuestionArray(container, target);
+            return;
+        }
+
+        if (container.ValueKind != JsonValueKind.Object) return;
+
+        if (TryGetProperty(container, out var qProp, "questions"))
+        {
+            if (qProp.ValueKind == JsonValueKind.Array)
             {
-                foreach (var opt in opts.EnumerateArray())
+                ExtractQuestionArray(qProp, target);
+                return;
+            }
+            if (qProp.ValueKind == JsonValueKind.String)
+            {
+                var raw = qProp.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
                 {
-                    if (opt.ValueKind == JsonValueKind.String)
+                    try
                     {
-                        q.Options.Add(new QuestionOption { Label = opt.GetString() ?? "" });
-                    }
-                    else if (opt.ValueKind == JsonValueKind.Object)
-                    {
-                        q.Options.Add(new QuestionOption
+                        using var parsed = JsonDocument.Parse(raw);
+                        if (parsed.RootElement.ValueKind == JsonValueKind.Array)
                         {
-                            Label = GetString(opt, "label", "value") ?? "",
-                            Description = GetString(opt, "description")
-                        });
+                            ExtractQuestionArray(parsed.RootElement, target);
+                            return;
+                        }
                     }
+                    catch { }
                 }
             }
-            if (!string.IsNullOrWhiteSpace(q.Question))
+        }
+
+        // Fallback: single flat question object ({ "question": "...", "options": [...] })
+        if (TryParseSingleQuestion(container, out var single))
+        {
+            target.Add(single);
+        }
+    }
+
+    private static void ExtractQuestionArray(JsonElement qArr, List<PendingQuestionItem> target)
+    {
+        foreach (var item in qArr.EnumerateArray())
+        {
+            if (TryParseSingleQuestion(item, out var q))
             {
                 target.Add(q);
+            }
+        }
+    }
+
+    private static bool TryParseSingleQuestion(JsonElement item, out PendingQuestionItem result)
+    {
+        result = null!;
+        if (item.ValueKind != JsonValueKind.Object) return false;
+
+        var questionText = GetString(item, "question", "text");
+        if (string.IsNullOrWhiteSpace(questionText)) return false;
+
+        var q = new PendingQuestionItem
+        {
+            Header = GetString(item, "header", "title") ?? "",
+            Question = questionText,
+            MultiSelect = GetBool(item, "is_multi_select", "isMultiSelect", "multi_select", "multiSelect")
+        };
+
+        if (TryGetProperty(item, out var opts, "options"))
+        {
+            if (opts.ValueKind == JsonValueKind.Array)
+            {
+                ExtractOptionsArray(opts, q.Options);
+            }
+            else if (opts.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(opts.GetString()))
+            {
+                try
+                {
+                    using var parsedOpts = JsonDocument.Parse(opts.GetString()!);
+                    if (parsedOpts.RootElement.ValueKind == JsonValueKind.Array)
+                    {
+                        ExtractOptionsArray(parsedOpts.RootElement, q.Options);
+                    }
+                }
+                catch { }
+            }
+        }
+
+        result = q;
+        return true;
+    }
+
+    private static void ExtractOptionsArray(JsonElement opts, List<QuestionOption> target)
+    {
+        foreach (var opt in opts.EnumerateArray())
+        {
+            if (opt.ValueKind == JsonValueKind.String)
+            {
+                var label = opt.GetString();
+                if (!string.IsNullOrWhiteSpace(label))
+                {
+                    target.Add(new QuestionOption { Label = label });
+                }
+            }
+            else if (opt.ValueKind == JsonValueKind.Object)
+            {
+                var label = GetString(opt, "label", "value", "text") ?? "";
+                if (!string.IsNullOrWhiteSpace(label))
+                {
+                    target.Add(new QuestionOption
+                    {
+                        Label = label,
+                        Description = GetString(opt, "description")
+                    });
+                }
             }
         }
     }

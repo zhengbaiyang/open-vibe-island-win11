@@ -77,6 +77,13 @@ public static class Strings
         ["CompactIdle"]        = ("待机中", "Idle"),
         ["ActiveCount"]        = ("{0} 个活跃", "{0} active"),
         ["ApprovalCount"]      = ("{0} 个待审批", "{0} waiting"),
+        ["QuestionCount"]      = ("{0} 个待选择", "{0} to answer"),
+        ["OpenToAnswer"]       = ("前往 {0} 选择", "Open {0} to Select"),
+        ["ClickOptionToJumpHint"] = ("点击选项或按钮将切回 {0} 完成选择", "Click an option or button to jump to {0} and select"),
+        ["MultiSelectBadge"]   = ("多选", "Multi-select"),
+        ["SingleSelectBadge"]  = ("单选", "Single-select"),
+        ["RecommendedBadge"]   = ("推荐", "Recommended"),
+        ["IgnoreReminder"]     = ("忽略", "Dismiss"),
 
         // Settings shell
         ["SettingsSubtitle"]   = ("本地优先的 AI 编程 Agent 控制中心", "Local-first control center for AI coding agents"),

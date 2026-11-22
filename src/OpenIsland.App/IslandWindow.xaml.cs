@@ -741,17 +741,25 @@ public partial class IslandWindow : Window
         var sessions = _app.Reducer.GetActiveSessions();
         var completions = _app.Reducer.GetRecentCompletions();
 
+        int pendingApprovalOnly = sessions.Count(s => s.PendingApproval != null);
+        int pendingQuestionOnly = sessions.Count(s => s.PendingQuestion != null);
         int approvalCount = sessions.Count(s => s.PendingApproval != null || s.PendingQuestion != null);
         int runningCount = sessions.Count(s => s.Phase == SessionPhase.Running);
         int waitingCount = sessions.Count(s => s.Phase is SessionPhase.WaitingForApproval or SessionPhase.WaitingForAnswer);
 
         // ---- Header status -------------------------------------------------
         string status;
-        if (approvalCount > 0)
+        if (pendingApprovalOnly > 0)
         {
             status = Strings.Get("ApprovalCount", approvalCount);
             AlertChip.Visibility = Visibility.Collapsed;
             HeaderStatus.Foreground = B("#FFD58A");
+        }
+        else if (pendingQuestionOnly > 0)
+        {
+            status = Strings.Get("QuestionCount", pendingQuestionOnly);
+            AlertChip.Visibility = Visibility.Collapsed;
+            HeaderStatus.Foreground = B("#7FC9FF");
         }
         else if (waitingCount > 0)
         {
@@ -963,7 +971,14 @@ public partial class IslandWindow : Window
     private UIElement BuildQuestionCard(AgentSession session, PendingQuestionRequest req)
     {
         var meta = AgentRegistry.Get(req.Source);
-        var firstQ = req.Questions.FirstOrDefault();
+        var questions = req.Questions.Count > 0
+            ? req.Questions
+            : new List<PendingQuestionItem>
+            {
+                new() { Header = "", Question = Strings.Get("QuestionHint") }
+            };
+        var firstQ = questions[0];
+
         var card = new Border
         {
             Background = B("#1538BDF8"),
@@ -975,88 +990,273 @@ public partial class IslandWindow : Window
         };
         var stack = new StackPanel();
 
+        // Header row
+        var headerText = !string.IsNullOrWhiteSpace(firstQ.Header)
+            ? $"{meta.DisplayName} · {firstQ.Header}"
+            : $"{meta.DisplayName} · {Strings.Get("QuestionHint")}";
+
         var header = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         header.Children.Add(IconPath("IconQuestion", 13, "#7FC9FF", margin: new Thickness(0, 0, 7, 0)));
         header.Children.Add(new TextBlock
         {
-            Text = $"{meta.DisplayName} · {firstQ?.Header ?? Strings.Get("QuestionHint")}",
+            Text = headerText,
             Foreground = B("#CBE6FF"),
             FontWeight = FontWeights.SemiBold,
             FontSize = 12,
             VerticalAlignment = VerticalAlignment.Center
         });
+        if (questions.Any(q => q.Options.Count > 0))
+        {
+            var modeKey = firstQ.MultiSelect ? "MultiSelectBadge" : "SingleSelectBadge";
+            header.Children.Add(Chip(Strings.Get(modeKey), "#7FC9FF", "#2238BDF8", new Thickness(8, 0, 0, 0)));
+        }
         stack.Children.Add(header);
 
-        if (!string.IsNullOrWhiteSpace(firstQ?.Question))
+        // Scrollable questions & full wrapped option cards (handles long /grill-me prompts cleanly)
+        var questionsBody = new StackPanel();
+        for (int qIdx = 0; qIdx < questions.Count; qIdx++)
         {
-            stack.Children.Add(new TextBlock
+            var qItem = questions[qIdx];
+            var qTitle = questions.Count > 1 ? $"{qIdx + 1}. {qItem.Question}" : qItem.Question;
+            if (!string.IsNullOrWhiteSpace(qTitle))
             {
-                Text = firstQ.Question,
-                Foreground = B("#F2F4F8"),
-                FontSize = 12.5,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 6, 0, 0)
-            });
-        }
-
-        if (firstQ != null && firstQ.Options.Count > 0)
-        {
-            var options = new WrapPanel { Margin = new Thickness(0, 8, 0, 2) };
-            foreach (var opt in firstQ.Options)
-            {
-                var optBtn = new Button
+                questionsBody.Children.Add(new TextBlock
                 {
-                    Content = opt.Label,
-                    Style = (Style)FindResource("PillButton"),
-                    Margin = new Thickness(0, 0, 6, 6),
-                    Padding = new Thickness(11, 4, 11, 4)
-                };
-                optBtn.Click += (_, _) =>
-                {
-                    _app.Bridge.ResolveQuestion(req, new Dictionary<string, string> { [firstQ.Question] = opt.Label });
-                    AfterApprovalResolved();
-                };
-                if (!string.IsNullOrWhiteSpace(opt.Description)) optBtn.ToolTip = opt.Description;
-                options.Children.Add(optBtn);
+                    Text = qTitle,
+                    Foreground = B("#F2F4F8"),
+                    FontSize = 12.5,
+                    FontWeight = FontWeights.Medium,
+                    TextWrapping = TextWrapping.Wrap,
+                    LineHeight = 17.5,
+                    Margin = new Thickness(0, qIdx == 0 ? 7 : 10, 0, 0)
+                });
             }
-            stack.Children.Add(options);
+
+            if (qItem.Options.Count > 0)
+            {
+                var optionsList = new StackPanel { Margin = new Thickness(0, 7, 0, 2) };
+                for (int oIdx = 0; oIdx < qItem.Options.Count; oIdx++)
+                {
+                    var opt = qItem.Options[oIdx];
+                    var (displayLabel, isRecommended) = StripRecommendedPrefix(opt.Label);
+
+                    var optGrid = new Grid();
+                    optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    optGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+                    var indexBadge = new Border
+                    {
+                        Width = 18,
+                        Height = 18,
+                        CornerRadius = new CornerRadius(5),
+                        Background = B(isRecommended ? "#2E6EA7FF" : "#1AFFFFFF"),
+                        BorderBrush = B(isRecommended ? "#666EA7FF" : "#22FFFFFF"),
+                        BorderThickness = new Thickness(1),
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(0, 1, 8, 0),
+                        Child = new TextBlock
+                        {
+                            Text = (oIdx + 1).ToString(),
+                            FontSize = 10,
+                            FontWeight = FontWeights.SemiBold,
+                            Foreground = B(isRecommended ? "#9CC7FF" : "#A6B3C6"),
+                            HorizontalAlignment = HorizontalAlignment.Center,
+                            VerticalAlignment = VerticalAlignment.Center
+                        }
+                    };
+                    Grid.SetColumn(indexBadge, 0);
+                    optGrid.Children.Add(indexBadge);
+
+                    var optTextStack = new StackPanel();
+                    if (isRecommended)
+                    {
+                        var labelWrap = new StackPanel { Orientation = Orientation.Vertical };
+                        var recBadge = Chip(Strings.Get("RecommendedBadge"), "#8ED7A5", "#246FB982", new Thickness(0, 0, 0, 3));
+                        recBadge.HorizontalAlignment = HorizontalAlignment.Left;
+                        labelWrap.Children.Add(recBadge);
+                        labelWrap.Children.Add(new TextBlock
+                        {
+                            Text = displayLabel,
+                            Foreground = B("#F2F6FC"),
+                            FontSize = 11.5,
+                            TextWrapping = TextWrapping.Wrap,
+                            LineHeight = 16
+                        });
+                        optTextStack.Children.Add(labelWrap);
+                    }
+                    else
+                    {
+                        optTextStack.Children.Add(new TextBlock
+                        {
+                            Text = displayLabel,
+                            Foreground = B("#DCE3ED"),
+                            FontSize = 11.5,
+                            TextWrapping = TextWrapping.Wrap,
+                            LineHeight = 16
+                        });
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(opt.Description))
+                    {
+                        optTextStack.Children.Add(new TextBlock
+                        {
+                            Text = opt.Description,
+                            Foreground = B("#8A95A6"),
+                            FontSize = 10.5,
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 2, 0, 0)
+                        });
+                    }
+                    Grid.SetColumn(optTextStack, 1);
+                    optGrid.Children.Add(optTextStack);
+
+                    var optCard = new Border
+                    {
+                        Background = B(isRecommended ? "#1C6EA7FF" : "#12FFFFFF"),
+                        BorderBrush = B(isRecommended ? "#556EA7FF" : "#22FFFFFF"),
+                        BorderThickness = new Thickness(1),
+                        CornerRadius = new CornerRadius(8),
+                        Padding = new Thickness(9, 7, 10, 7),
+                        Margin = new Thickness(0, 0, 0, 5),
+                        Cursor = Cursors.Hand,
+                        Child = optGrid
+                    };
+                    var baseBg = isRecommended ? "#1C6EA7FF" : "#12FFFFFF";
+                    var hoverBg = isRecommended ? "#2B6EA7FF" : "#20FFFFFF";
+                    optCard.MouseEnter += (_, _) => AnimateRowBackground(optCard, hoverBg, 110);
+                    optCard.MouseLeave += (_, _) => AnimateRowBackground(optCard, baseBg, 150);
+
+                    var capturedQ = qItem;
+                    var capturedOpt = opt;
+                    optCard.MouseLeftButtonUp += (_, e) =>
+                    {
+                        e.Handled = true;
+                        if (req.IsBlocking)
+                        {
+                            _app.Bridge.ResolveQuestion(req, new Dictionary<string, string> { [capturedQ.Question] = capturedOpt.Label });
+                            AfterApprovalResolved();
+                        }
+                        else
+                        {
+                            // Observational question (e.g. Google Antigravity ask_question / /grill-me):
+                            // jump straight to the host app so the user can click their choice there.
+                            TerminalJump(session);
+                        }
+                    };
+                    optionsList.Children.Add(optCard);
+                }
+                questionsBody.Children.Add(optionsList);
+            }
         }
 
-        var inputRow = new DockPanel { Margin = new Thickness(0, 2, 0, 0) };
-        var sendBtn = new Button
+        var questionsScroll = new ScrollViewer
         {
-            Content = Strings.Get("SubmitAnswer"),
-            Style = (Style)FindResource("ApproveButton"),
-            Padding = new Thickness(13, 5, 13, 5),
-            Margin = new Thickness(7, 0, 0, 0)
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 290,
+            Focusable = false,
+            Content = questionsBody
         };
-        DockPanel.SetDock(sendBtn, Dock.Right);
-        var answerBox = new TextBox
+        stack.Children.Add(questionsScroll);
+
+        if (req.IsBlocking)
         {
-            Style = (Style)FindResource("DarkAnswerBox"),
-            MinHeight = 30
-        };
-        sendBtn.Click += (_, _) =>
-        {
-            var ans = answerBox.Text.Trim();
-            if (string.IsNullOrEmpty(ans)) return;
-            _app.Bridge.ResolveQuestion(req, new Dictionary<string, string>
+            var inputRow = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
+            var sendBtn = new Button
             {
-                [firstQ?.Question ?? "answer"] = ans
-            });
-            AfterApprovalResolved();
-        };
-        answerBox.KeyDown += (_, e) =>
+                Content = Strings.Get("SubmitAnswer"),
+                Style = (Style)FindResource("ApproveButton"),
+                Padding = new Thickness(13, 5, 13, 5),
+                Margin = new Thickness(7, 0, 0, 0)
+            };
+            DockPanel.SetDock(sendBtn, Dock.Right);
+            var answerBox = new TextBox
+            {
+                Style = (Style)FindResource("DarkAnswerBox"),
+                MinHeight = 30
+            };
+            sendBtn.Click += (_, _) =>
+            {
+                var ans = answerBox.Text.Trim();
+                if (string.IsNullOrEmpty(ans)) return;
+                _app.Bridge.ResolveQuestion(req, new Dictionary<string, string>
+                {
+                    [firstQ.Question ?? "answer"] = ans
+                });
+                AfterApprovalResolved();
+            };
+            answerBox.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Enter) sendBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            };
+            inputRow.Children.Add(sendBtn);
+            inputRow.Children.Add(answerBox);
+            stack.Children.Add(inputRow);
+        }
+        else
         {
-            if (e.Key == Key.Enter) sendBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        };
-        inputRow.Children.Add(sendBtn);
-        inputRow.Children.Add(answerBox);
-        stack.Children.Add(inputRow);
+            var footer = new Grid { Margin = new Thickness(0, 6, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var hintText = new TextBlock
+            {
+                Text = Strings.Get("ClickOptionToJumpHint", meta.DisplayName),
+                Foreground = B("#89A5C4"),
+                FontSize = 10.5,
+                TextWrapping = TextWrapping.Wrap,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            Grid.SetColumn(hintText, 0);
+            footer.Children.Add(hintText);
+
+            var actionButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            var openBtn = new Button
+            {
+                Content = Strings.Get("OpenToAnswer", meta.DisplayName),
+                Style = (Style)FindResource("ApproveButton"),
+                Padding = new Thickness(11, 5, 11, 5),
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            openBtn.Click += (_, _) => TerminalJump(session);
+
+            var dismissBtn = new Button
+            {
+                Content = Strings.Get("IgnoreReminder"),
+                Style = (Style)FindResource("PillButton"),
+                Padding = new Thickness(10, 5, 10, 5)
+            };
+            dismissBtn.Click += (_, _) =>
+            {
+                _app.Reducer.ClearPendingQuestion(session.SessionId, req.RequestId);
+                AfterApprovalResolved();
+            };
+
+            actionButtons.Children.Add(openBtn);
+            actionButtons.Children.Add(dismissBtn);
+            Grid.SetColumn(actionButtons, 1);
+            footer.Children.Add(actionButtons);
+            stack.Children.Add(footer);
+        }
 
         card.Child = stack;
         AnimateCardIn(card);
         return card;
+    }
+
+    private static (string Label, bool IsRecommended) StripRecommendedPrefix(string raw)
+    {
+        var trimmed = (raw ?? "").Trim();
+        string[] prefixes = ["(Recommended)", "（Recommended）", "（推荐）", "(推荐)", "[Recommended]"];
+        foreach (var prefix in prefixes)
+        {
+            if (trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return (trimmed[prefix.Length..].Trim(), true);
+            }
+        }
+        return (trimmed, false);
     }
 
     private UIElement BuildCompletionCard(CompletionCard card)
@@ -1214,9 +1414,13 @@ public partial class IslandWindow : Window
         }
         content.Children.Add(titleRow);
 
-        var activity = !string.IsNullOrWhiteSpace(session.ActiveToolName)
-            ? $"{session.ActiveToolName} · {session.ActiveToolPreview}"
-            : session.StatusSummary ?? session.LastPrompt ?? session.Cwd ?? "";
+        var activity = session.Phase == SessionPhase.WaitingForAnswer && !string.IsNullOrWhiteSpace(session.StatusSummary)
+            ? session.StatusSummary
+            : !string.IsNullOrWhiteSpace(session.ActiveToolName)
+                ? (string.IsNullOrWhiteSpace(session.ActiveToolPreview)
+                    ? session.ActiveToolName
+                    : $"{session.ActiveToolName} · {session.ActiveToolPreview}")
+                : session.StatusSummary ?? session.LastPrompt ?? session.Cwd ?? "";
         if (!string.IsNullOrWhiteSpace(activity))
         {
             content.Children.Add(new TextBlock

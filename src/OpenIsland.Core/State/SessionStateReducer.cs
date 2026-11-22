@@ -22,6 +22,12 @@ public sealed class SessionStateReducer
     private readonly Dictionary<string, string> _sessionAliases = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// Tracks observational/transcript-discovered question IDs that have already been
+    /// dismissed or resolved so subsequent polling ticks do not re-surface the same prompt.
+    /// </summary>
+    private readonly HashSet<string> _dismissedQuestionIds = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Merge recurring generic-titled sessions ("new-chat", empty title, …) of the same
     /// agent + working directory into one row. Configured from AppSettings.
     /// </summary>
@@ -196,12 +202,14 @@ public sealed class SessionStateReducer
                     session.ActiveToolName = null;
                     session.ActiveToolPreview = null;
                     session.PendingApproval = null;
+                    RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
                     break;
 
                 case "UserPromptSubmit":
                     session.Phase = SessionPhase.Running;
                     session.PendingApproval = null;
+                    RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
                     if (!string.IsNullOrWhiteSpace(evt.Prompt))
                     {
@@ -214,9 +222,11 @@ public sealed class SessionStateReducer
                     session.ActiveToolName = evt.ToolName ?? "tool";
                     session.ActiveToolPreview = evt.ToolInputPreview;
 
-                    // Hermes `clarify` tool or Claude `AskUserQuestion` surfaces HITL question card
+                    // Hermes `clarify`, Claude `AskUserQuestion`, or Antigravity `ask_question` surfaces HITL question card
                     if ((evt.Source == AgentSource.Hermes && string.Equals(evt.ToolName, "clarify", StringComparison.OrdinalIgnoreCase))
                         || string.Equals(evt.ToolName, "AskUserQuestion", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(evt.ToolName, "ask_question", StringComparison.OrdinalIgnoreCase)
+                        || (evt.ToolName?.EndsWith(":ask_question", StringComparison.OrdinalIgnoreCase) == true)
                         || evt.Questions.Count > 0)
                     {
                         session.Phase = SessionPhase.WaitingForAnswer;
@@ -250,6 +260,7 @@ public sealed class SessionStateReducer
                     if (session.Phase == SessionPhase.WaitingForApproval || session.Phase == SessionPhase.WaitingForAnswer)
                     {
                         session.PendingApproval = null;
+                        RememberClearedQuestion(session.PendingQuestion);
                         session.PendingQuestion = null;
                         session.Phase = SessionPhase.Running;
                     }
@@ -350,6 +361,7 @@ public sealed class SessionStateReducer
                     session.ActiveToolName = null;
                     session.ActiveToolPreview = null;
                     session.PendingApproval = null;
+                    RememberClearedQuestion(session.PendingQuestion);
                     session.PendingQuestion = null;
 
                     var msg = evt.LastAssistantMessage ?? evt.Error ?? evt.Reason ?? "Turn completed";
@@ -402,23 +414,51 @@ public sealed class SessionStateReducer
     {
         lock (_lock)
         {
+            if (!string.IsNullOrWhiteSpace(requestId))
+            {
+                _dismissedQuestionIds.Add(requestId);
+                if (_dismissedQuestionIds.Count > 500) _dismissedQuestionIds.Clear();
+            }
+
             if (_sessions.TryGetValue(sessionId, out var session) && session.PendingQuestion?.RequestId == requestId)
             {
+                var wasBlocking = session.PendingQuestion.IsBlocking;
                 session.PendingQuestion = null;
-                session.Phase = SessionPhase.Running;
+                session.Phase = wasBlocking ? SessionPhase.Running : SessionPhase.Idle;
                 session.UpdatedAt = DateTimeOffset.UtcNow;
             }
         }
         StateChanged?.Invoke();
     }
 
+    private void RememberClearedQuestion(PendingQuestionRequest? pending)
+    {
+        if (pending is null || string.IsNullOrWhiteSpace(pending.RequestId)) return;
+        _dismissedQuestionIds.Add(pending.RequestId);
+        if (_dismissedQuestionIds.Count > 500) _dismissedQuestionIds.Clear();
+    }
+
     public void UpsertDiscoveredSession(AgentSession discovered)
     {
+        PendingQuestionRequest? newlyDiscoveredQuestion = null;
+
         lock (_lock)
         {
             if (_sessionAliases.TryGetValue(discovered.SessionId, out var canonicalId))
             {
                 discovered.SessionId = canonicalId;
+            }
+
+            // Drop transcript-discovered questions that were already resolved or dismissed.
+            if (discovered.PendingQuestion != null &&
+                !discovered.PendingQuestion.IsBlocking &&
+                _dismissedQuestionIds.Contains(discovered.PendingQuestion.RequestId))
+            {
+                discovered.PendingQuestion = null;
+                if (discovered.Phase == SessionPhase.WaitingForAnswer)
+                {
+                    discovered.Phase = SessionPhase.Idle;
+                }
             }
 
             if (_sessions.TryGetValue(discovered.SessionId, out var existing))
@@ -432,6 +472,36 @@ public sealed class SessionStateReducer
                     existing.Model = discovered.Model;
                 if (string.IsNullOrWhiteSpace(existing.Terminal.DeepLinkUrl) && !string.IsNullOrWhiteSpace(discovered.Terminal.DeepLinkUrl))
                     existing.Terminal.DeepLinkUrl = discovered.Terminal.DeepLinkUrl;
+
+                // Sync observational transcript-discovered questions (e.g. Antigravity ask_question / /grill-me)
+                // even when the session also receives observational lifecycle hooks (IsHookManaged == true).
+                if (discovered.PendingQuestion != null)
+                {
+                    if (existing.PendingQuestion == null ||
+                        (!existing.PendingQuestion.IsBlocking &&
+                         !string.Equals(existing.PendingQuestion.RequestId, discovered.PendingQuestion.RequestId, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        existing.PendingQuestion = discovered.PendingQuestion;
+                        existing.Phase = SessionPhase.WaitingForAnswer;
+                        existing.ActiveToolName = discovered.ActiveToolName ?? "ask_question";
+                        existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
+                        existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
+                        newlyDiscoveredQuestion = discovered.PendingQuestion;
+                    }
+                }
+                else if (existing.PendingQuestion != null &&
+                         !existing.PendingQuestion.IsBlocking &&
+                         existing.PendingQuestion.RequestId.StartsWith("agq-", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Transcript moved past the ask_question step (user selected an option in Antigravity).
+                    RememberClearedQuestion(existing.PendingQuestion);
+                    existing.PendingQuestion = null;
+                    existing.ActiveToolName = discovered.ActiveToolName;
+                    existing.Phase = discovered.Phase;
+                    existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
+                    if (discovered.UpdatedAt > existing.UpdatedAt) existing.UpdatedAt = discovered.UpdatedAt;
+                }
+
                 if (!existing.IsHookManaged && discovered.UpdatedAt > existing.UpdatedAt)
                 {
                     existing.UpdatedAt = discovered.UpdatedAt;
@@ -441,21 +511,27 @@ public sealed class SessionStateReducer
                     existing.Model = discovered.Model ?? existing.Model;
                     existing.ActiveToolName = discovered.ActiveToolName;
                     existing.ActiveToolPreview = discovered.ActiveToolPreview;
-                    existing.Phase = discovered.Phase;
+                    if (existing.PendingQuestion == null && existing.PendingApproval == null)
+                    {
+                        existing.Phase = discovered.Phase;
+                    }
                 }
                 else if (!existing.IsHookManaged && existing.Phase == SessionPhase.Running && discovered.Phase != SessionPhase.Running)
                 {
-                    existing.Phase = discovered.Phase;
-                    existing.ActiveToolName = discovered.ActiveToolName;
-                    existing.ActiveToolPreview = discovered.ActiveToolPreview;
+                    if (existing.PendingQuestion == null && existing.PendingApproval == null)
+                    {
+                        existing.Phase = discovered.Phase;
+                        existing.ActiveToolName = discovered.ActiveToolName;
+                        existing.ActiveToolPreview = discovered.ActiveToolPreview;
+                    }
                 }
 
                 // A previously expired conversation becomes visible again when it gets new
                 // activity (e.g. an automation thread that was idle for a while).
-                if (existing.Phase == SessionPhase.Ended && discovered.UpdatedAt > existing.UpdatedAt)
+                if (existing.Phase == SessionPhase.Ended && (discovered.UpdatedAt > existing.UpdatedAt || discovered.PendingQuestion != null))
                 {
-                    existing.Phase = discovered.Phase;
-                    existing.UpdatedAt = discovered.UpdatedAt;
+                    existing.Phase = existing.PendingQuestion != null ? SessionPhase.WaitingForAnswer : discovered.Phase;
+                    existing.UpdatedAt = discovered.UpdatedAt > existing.UpdatedAt ? discovered.UpdatedAt : DateTimeOffset.UtcNow;
                     existing.LastPrompt = discovered.LastPrompt ?? existing.LastPrompt;
                     existing.StatusSummary = discovered.StatusSummary ?? existing.StatusSummary;
                 }
@@ -492,9 +568,18 @@ public sealed class SessionStateReducer
                 }
 
                 _sessions[discovered.SessionId] = discovered;
+                if (discovered.PendingQuestion != null)
+                {
+                    newlyDiscoveredQuestion = discovered.PendingQuestion;
+                }
             }
         }
+
         StateChanged?.Invoke();
+        if (newlyDiscoveredQuestion != null)
+        {
+            QuestionRequested?.Invoke(newlyDiscoveredQuestion);
+        }
     }
 
     public void ReconcileProcessLiveness(HashSet<AgentSource> aliveAgentProcesses, HashSet<int> alivePids)

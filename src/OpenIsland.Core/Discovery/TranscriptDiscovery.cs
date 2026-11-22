@@ -600,6 +600,9 @@ public sealed class TranscriptDiscovery
                         bool lastHasToolCalls = false;
                         DateTimeOffset? createdAt = null;
                         DateTimeOffset? lastActivity = null;
+                        PendingQuestionRequest? pendingQuestion = null;
+                        int pendingQuestionToolCount = 0;
+                        int completedGenericSinceQuestion = 0;
 
                         void ProcessLine(string line, bool isHead)
                         {
@@ -618,18 +621,29 @@ public sealed class TranscriptDiscovery
                                 var status = root.TryGetProperty("status", out var stEl) && stEl.ValueKind == JsonValueKind.String
                                     ? stEl.GetString()
                                     : null;
+                                int stepIndex = root.TryGetProperty("step_index", out var siEl) && siEl.TryGetInt32(out var siVal)
+                                    ? siVal
+                                    : -1;
 
+                                DateTimeOffset? lineTs = null;
                                 if (root.TryGetProperty("created_at", out var tsEl) && tsEl.ValueKind == JsonValueKind.String &&
                                     DateTimeOffset.TryParse(tsEl.GetString(), System.Globalization.CultureInfo.InvariantCulture,
                                         System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
                                         out var parsedTs))
                                 {
+                                    lineTs = parsedTs;
                                     if (isHead && createdAt is null) createdAt = parsedTs;
                                     if (!isHead && (lastActivity is null || parsedTs > lastActivity)) lastActivity = parsedTs;
                                 }
 
                                 if (string.Equals(type, "USER_INPUT", StringComparison.OrdinalIgnoreCase))
                                 {
+                                    if (!isHead)
+                                    {
+                                        pendingQuestion = null;
+                                        pendingQuestionToolCount = 0;
+                                        completedGenericSinceQuestion = 0;
+                                    }
                                     if (string.Equals(source, "USER_EXPLICIT", StringComparison.OrdinalIgnoreCase))
                                     {
                                         hasExplicitUserInput = true;
@@ -646,6 +660,10 @@ public sealed class TranscriptDiscovery
                                 }
                                 else if (!isHead && string.Equals(type, "PLANNER_RESPONSE", StringComparison.OrdinalIgnoreCase))
                                 {
+                                    pendingQuestion = null;
+                                    pendingQuestionToolCount = 0;
+                                    completedGenericSinceQuestion = 0;
+
                                     if (root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String &&
                                         !string.IsNullOrWhiteSpace(mEl.GetString()))
                                     {
@@ -660,21 +678,104 @@ public sealed class TranscriptDiscovery
 
                                     bool hasTools = false;
                                     string? toolName = null;
+                                    int toolCallCount = 0;
+                                    List<PendingQuestionItem>? askQuestions = null;
+
                                     if (root.TryGetProperty("tool_calls", out var tcEl) && tcEl.ValueKind == JsonValueKind.Array)
                                     {
                                         foreach (var tc in tcEl.EnumerateArray())
                                         {
                                             hasTools = true;
+                                            toolCallCount++;
                                             if (tc.ValueKind == JsonValueKind.Object &&
                                                 tc.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String)
                                             {
-                                                toolName = nEl.GetString();
+                                                var currentTool = nEl.GetString();
+                                                toolName = currentTool;
+                                                if (IsQuestionToolName(currentTool))
+                                                {
+                                                    askQuestions ??= new List<PendingQuestionItem>();
+                                                    if (tc.TryGetProperty("args", out var argsEl))
+                                                    {
+                                                        HookPayloadDecoder.ExtractQuestions(argsEl, askQuestions);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
 
+                                    // If tool_calls was truncated in compact transcript.jsonl, recover full ask_question args from transcript_full.jsonl.
+                                    if (askQuestions != null && askQuestions.Count == 0 && stepIndex >= 0)
+                                    {
+                                        TryRecoverAntigravityQuestionsFromFullTranscript(transcriptPath, stepIndex, askQuestions);
+                                    }
+
+                                    if (askQuestions != null)
+                                    {
+                                        if (askQuestions.Count == 0)
+                                        {
+                                            askQuestions.Add(new PendingQuestionItem
+                                            {
+                                                Header = surfaceName,
+                                                Question = Localization.Strings.Get("QuestionHint")
+                                            });
+                                        }
+                                        var stepKey = stepIndex >= 0
+                                            ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                            : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                        pendingQuestion = new PendingQuestionRequest
+                                        {
+                                            RequestId = $"agq-{sessionId}-{stepKey}",
+                                            SessionId = sessionId,
+                                            Source = AgentSource.Antigravity,
+                                            Questions = askQuestions,
+                                            IsBlocking = false,
+                                            CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                        };
+                                        pendingQuestionToolCount = Math.Max(1, toolCallCount);
+                                        toolName = "ask_question";
+                                    }
+
                                     lastHasToolCalls = hasTools;
                                     activeToolName = hasTools ? toolName : null;
+                                }
+                                else if (!isHead && string.Equals(type, "GENERIC", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (pendingQuestion != null)
+                                    {
+                                        bool stepFinished =
+                                            string.Equals(status, "DONE", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(status, "ERROR", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
+                                            string.Equals(status, "CANCELED", StringComparison.OrdinalIgnoreCase);
+
+                                        if (stepFinished)
+                                        {
+                                            completedGenericSinceQuestion++;
+                                            var genericContent = root.TryGetProperty("content", out var gcEl) && gcEl.ValueKind == JsonValueKind.String
+                                                ? gcEl.GetString() ?? ""
+                                                : "";
+                                            bool looksLikeQuestionAnswer =
+                                                genericContent.Contains("\nA1:", StringComparison.Ordinal) ||
+                                                genericContent.StartsWith("A1:", StringComparison.Ordinal) ||
+                                                genericContent.Contains("User cancelled", StringComparison.OrdinalIgnoreCase);
+
+                                            if (pendingQuestionToolCount <= 1 ||
+                                                completedGenericSinceQuestion >= pendingQuestionToolCount ||
+                                                looksLikeQuestionAnswer)
+                                            {
+                                                pendingQuestion = null;
+                                                pendingQuestionToolCount = 0;
+                                                completedGenericSinceQuestion = 0;
+                                            }
+                                        }
+                                    }
+                                }
+                                else if (!isHead && string.Equals(type, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    pendingQuestion = null;
+                                    pendingQuestionToolCount = 0;
+                                    completedGenericSinceQuestion = 0;
                                 }
 
                                 if (!isHead)
@@ -711,9 +812,19 @@ public sealed class TranscriptDiscovery
                         if (updatedAt.UtcDateTime < cutoffUtc) continue;
 
                         var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
+                        if (pendingQuestion != null && idleSeconds >= 1800)
+                        {
+                            // Avoid surfacing abandoned questions older than 30 minutes.
+                            pendingQuestion = null;
+                        }
+
                         SessionPhase phase;
-                        if (string.Equals(lastType, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(lastStatus, "ERROR", StringComparison.OrdinalIgnoreCase))
+                        if (pendingQuestion != null)
+                        {
+                            phase = SessionPhase.WaitingForAnswer;
+                        }
+                        else if (string.Equals(lastType, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase) ||
+                                 string.Equals(lastStatus, "ERROR", StringComparison.OrdinalIgnoreCase))
                         {
                             phase = SessionPhase.Error;
                         }
@@ -735,13 +846,15 @@ public sealed class TranscriptDiscovery
 
                         var effectivePrompt = lastPrompt ?? firstUserPrompt;
                         var title = HookPayloadDecoder.Clip(firstUserPrompt ?? effectivePrompt, 90);
-                        var statusSummary = phase == SessionPhase.Running && !string.IsNullOrWhiteSpace(activeToolName)
-                            ? $"Running {activeToolName}"
-                            : !string.IsNullOrWhiteSpace(lastAssistant)
-                                ? HookPayloadDecoder.Clip(lastAssistant, 160)
-                                : !string.IsNullOrWhiteSpace(effectivePrompt)
-                                    ? HookPayloadDecoder.Clip(effectivePrompt, 160)
-                                    : $"{surfaceName} session";
+                        var statusSummary = pendingQuestion != null
+                            ? HookPayloadDecoder.Clip(pendingQuestion.Questions.FirstOrDefault()?.Question ?? Localization.Strings.Get("QuestionHint"), 160)
+                            : phase == SessionPhase.Running && !string.IsNullOrWhiteSpace(activeToolName)
+                                ? $"Running {activeToolName}"
+                                : !string.IsNullOrWhiteSpace(lastAssistant)
+                                    ? HookPayloadDecoder.Clip(lastAssistant, 160)
+                                    : !string.IsNullOrWhiteSpace(effectivePrompt)
+                                        ? HookPayloadDecoder.Clip(effectivePrompt, 160)
+                                        : $"{surfaceName} session";
 
                         results.Add(new AgentSession
                         {
@@ -750,11 +863,12 @@ public sealed class TranscriptDiscovery
                             Title = title,
                             Model = model,
                             TranscriptPath = transcriptPath,
-                            ActiveToolName = phase == SessionPhase.Running ? activeToolName : null,
+                            ActiveToolName = phase is SessionPhase.Running or SessionPhase.WaitingForAnswer ? activeToolName : null,
                             LastPrompt = HookPayloadDecoder.Clip(effectivePrompt, 160),
                             LastAssistantMessage = lastAssistant,
                             StatusSummary = statusSummary,
                             Phase = phase,
+                            PendingQuestion = pendingQuestion,
                             UpdatedAt = updatedAt,
                             CreatedAt = createdAt ?? new DateTimeOffset(info.CreationTimeUtc, TimeSpan.Zero),
                             Terminal = new TerminalMetadata
@@ -776,6 +890,58 @@ public sealed class TranscriptDiscovery
                 AppLog.Warn($"Antigravity session scan failed ({brainRoot}): {ex.Message}");
             }
         }
+    }
+
+    private static bool IsQuestionToolName(string? toolName)
+    {
+        if (string.IsNullOrWhiteSpace(toolName)) return false;
+        var clean = toolName.Trim();
+        return string.Equals(clean, "ask_question", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(clean, "AskUserQuestion", StringComparison.OrdinalIgnoreCase)
+               || clean.EndsWith(":ask_question", StringComparison.OrdinalIgnoreCase)
+               || clean.EndsWith(".ask_question", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void TryRecoverAntigravityQuestionsFromFullTranscript(
+        string compactTranscriptPath,
+        int targetStepIndex,
+        List<PendingQuestionItem> target)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(compactTranscriptPath);
+            if (string.IsNullOrWhiteSpace(dir)) return;
+            var fullPath = Path.Combine(dir, "transcript_full.jsonl");
+            if (!File.Exists(fullPath)) return;
+
+            var marker = $"\"step_index\":{targetStepIndex},";
+            foreach (var line in ReadTailLines(fullPath, 60))
+            {
+                if (!line.Contains(marker, StringComparison.Ordinal)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("tool_calls", out var tcEl) && tcEl.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var tc in tcEl.EnumerateArray())
+                        {
+                            if (tc.ValueKind == JsonValueKind.Object &&
+                                tc.TryGetProperty("name", out var nEl) &&
+                                nEl.ValueKind == JsonValueKind.String &&
+                                IsQuestionToolName(nEl.GetString()) &&
+                                tc.TryGetProperty("args", out var argsEl))
+                            {
+                                HookPayloadDecoder.ExtractQuestions(argsEl, target);
+                            }
+                        }
+                    }
+                }
+                catch { }
+                break;
+            }
+        }
+        catch { }
     }
 
     internal static string ExtractAntigravityUserPrompt(string? rawContent)
