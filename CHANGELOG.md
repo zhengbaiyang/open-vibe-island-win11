@@ -4,6 +4,18 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.6] - 2026-11-22
+
+### 🐛 修复 / Fixes
+
+- **修复 Google Antigravity `/grill-me`（`ask_question`）选项无法在灵动岛显示的问题**：
+  - 兼容解析 Antigravity 对话日志与 Hook 中 JSON 字符串编码的 `ask_question` 问题数组及 `is_multi_select` 单选 / 多选标识，并在紧凑日志截断时自动回退读取完整日志。
+  - 修复会话被 Antigravity 观察型 Hook 接管后屏蔽日志中待选问题状态的问题，触发提问时灵动岛会自动滑出展开并播放提示音；在 Antigravity 中完成选择后自动消隐。
+  - 升级灵动岛问题卡片：收起态提示「待选择」数量，展开态完整展示所有问题与自动换行的编号选项（高亮「推荐」项），点击任意选项或「前往 Antigravity 选择」按钮可一键切回 Antigravity 完成勾选，并支持「忽略」暂藏提醒。
+  - **Fixed Google Antigravity `/grill-me` (`ask_question`) selectable options not showing on the Dynamic Island**: parses string-encoded `ask_question` payloads (`is_multi_select`, single/multi-question lists), syncs transcript-discovered pending questions even when observational hooks are active, upgrades the island question card with wrapped numbered options, Recommended badges, and one-click jump back to Antigravity, and clears automatically once answered.
+- 修复等待回复状态下会话列表行尾部出现多余分隔符 `·` 的显示细节。
+  Fixed a stray trailing separator dot in the session row subtitle while waiting for an answer.
+
 ## [0.1.5] - 2026-11-22
 
 ### ✨ 新功能 / New Features
@@ -44,5 +56,6 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.6]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/zhengbaiyang/open-vibe-island-win11/releases/tag/v0.1.4

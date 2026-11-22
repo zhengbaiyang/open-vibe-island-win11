@@ -1,10 +1,10 @@
 <Project>
   <!-- Shared assembly/product metadata for all Open Island executables. -->
   <PropertyGroup>
-    <Version>0.1.5</Version>
-    <FileVersion>0.1.5.0</FileVersion>
-    <AssemblyVersion>0.1.5.0</AssemblyVersion>
-    <InformationalVersion>0.1.5-win11</InformationalVersion>
+    <Version>0.1.6</Version>
+    <FileVersion>0.1.6.0</FileVersion>
+    <AssemblyVersion>0.1.6.0</AssemblyVersion>
+    <InformationalVersion>0.1.6-win11</InformationalVersion>
     <Product>Open Island</Product>
     <Company>Open Island — Windows 11 port of open-vibe-island</Company>
     <Copyright>GNU GPL-3.0 · upstream Octane0411/open-vibe-island</Copyright>
