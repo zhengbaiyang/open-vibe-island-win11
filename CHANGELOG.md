@@ -4,6 +4,15 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.7] - 2026-11-22
+
+### 🎨 界面优化 / UI Improvements
+
+- **优化设置窗口与弹窗阴影在白色/浅色背景下的视觉表现**：
+  - 将设置界面、Agent 接入引导窗口、更新窗口及下拉菜单的阴影由原先偏右下且过重的黑边（默认 `315°` 方向、被窗口边界裁切）调整为正下方居中的柔和阴影，在浅色背景下左右对称且无硬切边。
+  - 将阴影拆分为独立底层渲染，避免整窗套用模糊滤镜，提升文字 ClearType 清晰度与交互流畅度。
+  - **Polished window and dropdown shadows on light/white backgrounds**: replaced the heavy bottom-right clipped shadows across Settings, Agent Connect, Update windows, and ComboBox popups with centered, subtle, clip-free shadows rendered on a separate backdrop layer for crisper ClearType text and smoother animations.
+
 ## [0.1.6] - 2026-11-22
 
 ### 🐛 修复 / Fixes
@@ -56,6 +65,7 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.7]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/zhengbaiyang/open-vibe-island-win11/releases/tag/v0.1.4
