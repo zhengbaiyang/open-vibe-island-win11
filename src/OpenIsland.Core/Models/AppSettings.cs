@@ -14,11 +14,19 @@ public enum IslandThemeStyle
     Graphite
 }
 
+public enum SettingsAppearanceMode
+{
+    System,
+    Light,
+    Dark
+}
+
 public sealed class AppSettings
 {
     public string Language { get; set; } = "zh-CN"; // "zh-CN" or "en"
     public IslandEdgePosition EdgePosition { get; set; } = IslandEdgePosition.TopCenter;
     public IslandThemeStyle ThemeStyle { get; set; } = IslandThemeStyle.PureBlack;
+    public SettingsAppearanceMode SettingsAppearance { get; set; } = SettingsAppearanceMode.System;
     public int MonitorIndex { get; set; } = 0;
     public bool SoundEnabled { get; set; } = true;
     /// <summary>

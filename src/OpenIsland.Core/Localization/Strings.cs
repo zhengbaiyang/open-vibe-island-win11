@@ -154,7 +154,12 @@ public static class Strings
 
         // Appearance
         ["AppearanceTitle"]    = ("外观与显示", "Appearance"),
-        ["AppearanceDesc"]     = ("调整灵动岛的位置、主题与显示屏幕。", "Tune the island's position, theme and display."),
+        ["AppearanceDesc"]     = ("调整设置界面主题，以及灵动岛的位置、风格与显示屏幕。", "Customize the Settings appearance and the island's position, finish and display."),
+        ["SettingsAppearanceTitle"]  = ("设置界面外观", "Settings Appearance"),
+        ["SettingsAppearanceHint"]   = ("切换设置与弹窗界面的亮暗主题，立即生效（灵动岛始终保持深色风格）。", "Switch between Light, Dark, or Windows system theme for Settings and dialogs (the island stays dark)."),
+        ["SettingsAppearanceSystem"] = ("跟随系统", "System"),
+        ["SettingsAppearanceLight"]  = ("浅色白底", "Light"),
+        ["SettingsAppearanceDark"]   = ("深色黑底", "Dark"),
         ["Position"]           = ("停靠位置", "Position"),
         ["Theme"]              = ("主题风格", "Theme"),
         ["Monitor"]            = ("显示屏幕", "Display"),

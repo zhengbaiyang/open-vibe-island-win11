@@ -4,6 +4,19 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.10] - 2026-11-23
+
+### ✨ 界面主题与视觉识别优化 / Settings Themes & Bespoke Agent Icons
+
+- **设置界面新增浅色白底 / 深色黑底 / 跟随系统切换**：
+  - 在「设置 → 外观与显示」顶部新增「设置界面外观」三段式开关，支持 **跟随系统 / 浅色白底 / 深色黑底** 即时切换，无需重启应用；
+  - 实时读取 Windows 系统深浅色设置（`AppsUseLightTheme`）并监听系统主题变化，设置窗口、Agent 自动接入引导窗口与更新窗口全面适配高对比度浅色暖纸与深色板岩双套色板，同时保持灵动岛本体的深色玻璃质感不变。
+  - **Light / Dark / Follow-System Settings appearance**: added a live 3-way appearance switch (`System` / `Light` / `Dark`) in Settings → Appearance that follows Windows `AppsUseLightTheme` in real time and dynamically re-themes Settings, Agent Connect, and Update windows without affecting the floating Dynamic Island's dark aesthetic.
+- **全量 Agent 专属矢量图标（统一风格、高辨识度）**：
+  - 新增统一视觉规范的 24×24 几何矢量图标库（`AgentIcons.xaml`）与自适应圆角徽章控件（`AgentIconView`），为全部 17 个受支持 Agent（Claude Code、Codex、Antigravity、Cursor、Gemini CLI、DeepSeek Harness、OpenCode、Kimi、Qwen、Grok、Hermes、Pi / Oh My Pi、Qoder、Factory、CodeBuddy、ZCode 等）提供各自独立且风格一致的专属图标；
+  - 全面接入「Agent 接入」列表、「用量监控」卡片以及「发现本机已安装的 Agent」引导弹窗，并在浅色 / 深色主题下自动校准前景亮度与描边对比度。
+  - **Bespoke cohesive icons for all 17 supported Agents**: introduced a unified 24×24 vector icon set (`AgentIcons.xaml`) and theme-aware squircle badge (`AgentIconView`) across Settings → Agents, Settings → Usage, and the Agent Connect dialog, automatically harmonizing contrast across both Light and Dark themes.
+
 ## [0.1.9] - 2026-11-22
 
 ### 🐛 修复与交互体验优化 / Fixes & UX Polish
@@ -103,6 +116,7 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.10]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.6...v0.1.7

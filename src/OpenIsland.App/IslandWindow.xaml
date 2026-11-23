@@ -6,6 +6,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="{x:Null}"
+        Foreground="{StaticResource BrushTextPrimary}"
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"

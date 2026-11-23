@@ -8,6 +8,8 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using OpenIsland.App.Controls;
+using OpenIsland.App.Themes;
 using OpenIsland.Core.Discovery;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Models;
@@ -27,15 +29,18 @@ public partial class SettingsWindow : Window
 
     private readonly string _appVersion;
     private bool _controlsReady;
+    private bool _isClosing;
     private bool _isManualUpdateChecking;
+    private bool _lastSaveToastOk = true;
+    private bool _lastAgentsFeedbackOk = true;
     private string _currentPageKey = "connection";
     private ScrollViewer? _activePage;
 
-    private static readonly Color AccentColor = ColorFromHex("#6EA7FF");
-    private static readonly Color GreenColor = ColorFromHex("#6FB982");
-    private static readonly Color AmberColor = ColorFromHex("#E7A762");
-    private static readonly Color DangerColor = ColorFromHex("#F26D6D");
-    private static readonly Color TertiaryColor = ColorFromHex("#6F7B8F");
+    private static Color AccentColor => SettingsThemeManager.AccentColor;
+    private static Color GreenColor => SettingsThemeManager.GreenColor;
+    private static Color AmberColor => SettingsThemeManager.AmberColor;
+    private static Color DangerColor => SettingsThemeManager.DangerColor;
+    private static Color TertiaryColor => SettingsThemeManager.TextTertiaryColor;
 
     public SettingsWindow(App app)
     {
@@ -79,6 +84,7 @@ public partial class SettingsWindow : Window
 
         _app.UpdateCheckCompleted += OnUpdateCheckCompleted;
         _app.AgentInstallStateChanged += OnAgentInstallStateChanged;
+        SettingsThemeManager.ThemeChanged += OnSettingsThemeChanged;
 
         MonitorCombo.SelectionChanged += (_, _) =>
         {
@@ -98,7 +104,7 @@ public partial class SettingsWindow : Window
         _controlsReady = true;
         UpdateAppearancePreview();
 
-        // Sliding segmented pill for the language selector.
+        // Sliding segmented pills for language and appearance selectors.
         LanguageSegmentHost.Loaded += (_, _) => ScheduleLanguageSegmentPillSync();
         LanguageSegmentHost.IsVisibleChanged += (_, e) =>
         {
@@ -106,6 +112,149 @@ public partial class SettingsWindow : Window
                 ScheduleLanguageSegmentPillSync();
         };
         LanguageSegmentHost.SizeChanged += (_, _) => UpdateLanguageSegmentPill(animate: false);
+
+        AppearanceSegmentHost.Loaded += (_, _) => ScheduleAppearanceSegmentPillSync();
+        AppearanceSegmentHost.IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+                ScheduleAppearanceSegmentPillSync();
+        };
+        AppearanceSegmentHost.SizeChanged += (_, _) => UpdateAppearanceSegmentPill(animate: false);
+    }
+
+    private void OnSettingsThemeChanged(bool _)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnSettingsThemeChanged(_)));
+            return;
+        }
+        if (_isClosing) return;
+
+        RefreshAgentRows();
+        RefreshUsageCards();
+        UpdateConnectionPage();
+        UpdateAboutUpdateCard();
+        UpdateAppearanceSegmentPill(animate: false);
+        UpdateLanguageSegmentPill(animate: false);
+
+        if (SaveToast.Visibility == Visibility.Visible)
+        {
+            ApplySaveToastTheme(_lastSaveToastOk);
+        }
+        if (AgentsFeedback.Visibility == Visibility.Visible)
+        {
+            ApplyAgentsFeedbackTheme(_lastAgentsFeedbackOk);
+        }
+    }
+
+    private bool _appearancePillInitialized;
+    private bool _appearancePillSyncPending;
+
+    private SettingsAppearanceMode GetSelectedAppearanceMode()
+    {
+        if (AppearanceLightSegment.IsChecked == true) return SettingsAppearanceMode.Light;
+        if (AppearanceDarkSegment.IsChecked == true) return SettingsAppearanceMode.Dark;
+        return SettingsAppearanceMode.System;
+    }
+
+    private void AppearanceThemeSegment_Checked(object sender, RoutedEventArgs e)
+    {
+        UpdateAppearanceSegmentPill(animate: _appearancePillInitialized && _controlsReady);
+        if (!_controlsReady) return;
+
+        var mode = GetSelectedAppearanceMode();
+        if (_app.Settings.SettingsAppearance != mode || SettingsThemeManager.CurrentMode != mode)
+        {
+            _app.Settings.SettingsAppearance = mode;
+            SettingsThemeManager.Apply(mode);
+            _app.Settings.Save();
+        }
+    }
+
+    private void ScheduleAppearanceSegmentPillSync()
+    {
+        if (_appearancePillSyncPending || AppearanceSegmentHost is null) return;
+        _appearancePillSyncPending = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            _appearancePillSyncPending = false;
+            UpdateAppearanceSegmentPill(animate: false, allowDefer: false);
+        }));
+    }
+
+    private void UpdateAppearanceSegmentPill(bool animate, bool allowDefer = true)
+    {
+        if (AppearanceSegmentHost is null || AppearanceSegmentPill is null) return;
+
+        var selected = AppearanceLightSegment.IsChecked == true
+            ? AppearanceLightSegment
+            : AppearanceDarkSegment.IsChecked == true
+                ? AppearanceDarkSegment
+                : AppearanceSystemSegment.IsChecked == true ? AppearanceSystemSegment : null;
+
+        if (selected is null)
+        {
+            AppearanceSegmentPill.Visibility = Visibility.Collapsed;
+            _appearancePillInitialized = false;
+            return;
+        }
+
+        if (!AppearanceSegmentHost.IsLoaded || !AppearanceSegmentHost.IsVisible)
+            return;
+
+        if (selected.RenderSize.Width <= 0 || selected.RenderSize.Height <= 0 ||
+            !AppearanceSegmentHost.IsAncestorOf(selected))
+        {
+            if (allowDefer)
+                ScheduleAppearanceSegmentPillSync();
+            return;
+        }
+
+        var rect = selected.TransformToAncestor(AppearanceSegmentHost)
+            .TransformBounds(new Rect(new Point(0, 0), selected.RenderSize));
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            if (allowDefer)
+                ScheduleAppearanceSegmentPillSync();
+            return;
+        }
+
+        bool canAnimate = animate
+            && _appearancePillInitialized
+            && AppearanceSegmentPill.Visibility == Visibility.Visible
+            && AppearanceSegmentPill.ActualWidth > 0;
+
+        double fromWidth = AppearanceSegmentPill.ActualWidth > 0 ? AppearanceSegmentPill.ActualWidth : rect.Width;
+        double fromX = AppearanceSegmentPillTransform.X;
+
+        AppearanceSegmentPill.Visibility = Visibility.Visible;
+        AppearanceSegmentPill.Width = rect.Width;
+        AppearanceSegmentPill.Height = rect.Height;
+        AppearanceSegmentPillTransform.Y = rect.Y;
+        AppearanceSegmentPillTransform.X = rect.X;
+        _appearancePillInitialized = true;
+
+        if (!canAnimate || (Math.Abs(fromX - rect.X) < 0.5 && Math.Abs(fromWidth - rect.Width) < 0.5))
+        {
+            AppearanceSegmentPill.BeginAnimation(WidthProperty, null);
+            AppearanceSegmentPillTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            return;
+        }
+
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        AppearanceSegmentPill.BeginAnimation(WidthProperty,
+            new DoubleAnimation(fromWidth, rect.Width, TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.Stop
+            }, HandoffBehavior.SnapshotAndReplace);
+        AppearanceSegmentPillTransform.BeginAnimation(TranslateTransform.XProperty,
+            new DoubleAnimation(fromX, rect.X, TimeSpan.FromMilliseconds(200))
+            {
+                EasingFunction = ease,
+                FillBehavior = FillBehavior.Stop
+            }, HandoffBehavior.SnapshotAndReplace);
     }
 
     private bool _languagePillInitialized;
@@ -258,8 +407,10 @@ public partial class SettingsWindow : Window
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
+        _isClosing = true;
         _app.UpdateCheckCompleted -= OnUpdateCheckCompleted;
         _app.AgentInstallStateChanged -= OnAgentInstallStateChanged;
+        SettingsThemeManager.ThemeChanged -= OnSettingsThemeChanged;
         _connectionTimer.Stop();
         _saveToastTimer.Stop();
         _agentsFeedbackTimer.Stop();
@@ -340,6 +491,7 @@ public partial class SettingsWindow : Window
                 break;
             case "appearance":
                 UpdateAppearancePreview();
+                ScheduleAppearanceSegmentPillSync();
                 break;
             case "general":
                 ScheduleLanguageSegmentPillSync();
@@ -430,6 +582,11 @@ public partial class SettingsWindow : Window
         RefreshUsageButton.ToolTip = Strings.Get("RefreshUsage");
 
         // Appearance -------------------------------------------------
+        SettingsAppearanceTitle.Text = Strings.Get("SettingsAppearanceTitle");
+        SettingsAppearanceHint.Text = Strings.Get("SettingsAppearanceHint");
+        AppearanceSystemLabel.Text = Strings.Get("SettingsAppearanceSystem");
+        AppearanceLightLabel.Text = Strings.Get("SettingsAppearanceLight");
+        AppearanceDarkLabel.Text = Strings.Get("SettingsAppearanceDark");
         MonitorCardTitle.Text = Strings.Get("MonitorLabel");
         MonitorCardDesc.Text = Strings.Get("MonitorHint");
         PositionCardTitle.Text = Strings.Get("Position");
@@ -575,9 +732,15 @@ public partial class SettingsWindow : Window
         ThemeInkRadio.IsChecked = s.ThemeStyle != IslandThemeStyle.Graphite;
         ThemeGraphiteRadio.IsChecked = s.ThemeStyle == IslandThemeStyle.Graphite;
 
+        AppearanceSystemSegment.IsChecked = s.SettingsAppearance == SettingsAppearanceMode.System;
+        AppearanceLightSegment.IsChecked = s.SettingsAppearance == SettingsAppearanceMode.Light;
+        AppearanceDarkSegment.IsChecked = s.SettingsAppearance == SettingsAppearanceMode.Dark;
+
         UpdateSliderLabels();
         _controlsReady = true;
         UpdateAppearancePreview();
+        if (AppearanceSegmentHost?.IsVisible == true)
+            ScheduleAppearanceSegmentPillSync();
         if (LanguageSegmentHost?.IsVisible == true)
             ScheduleLanguageSegmentPillSync();
     }
@@ -628,6 +791,7 @@ public partial class SettingsWindow : Window
             ThemeStyle = ThemeGraphiteRadio.IsChecked == true
                 ? IslandThemeStyle.Graphite
                 : IslandThemeStyle.PureBlack,
+            SettingsAppearance = GetSelectedAppearanceMode(),
             LaunchAtStartup = StartupToggle.IsChecked == true,
             AutoCheckForUpdates = AutoCheckUpdatesToggle.IsChecked == true,
             SkippedUpdateVersion = previous.SkippedUpdateVersion,
@@ -680,16 +844,9 @@ public partial class SettingsWindow : Window
 
     private void ShowSaveToast(string? message = null, bool ok = true)
     {
+        _lastSaveToastOk = ok;
         SaveToastText.Text = string.IsNullOrWhiteSpace(message) ? Strings.Get("Saved") : message;
-        SaveToast.Background = new SolidColorBrush(ok
-            ? Color.FromArgb(255, 19, 36, 28)
-            : Color.FromArgb(255, 40, 20, 24));
-        SaveToast.BorderBrush = new SolidColorBrush(ok
-            ? Color.FromArgb(255, 44, 88, 67)
-            : Color.FromArgb(255, 110, 48, 58));
-        SaveToastIcon.Data = (Geometry)FindResource(ok ? "IconCheck" : "IconAlert");
-        SaveToastIcon.Fill = new SolidColorBrush(ok ? GreenColor : DangerColor);
-        SaveToastText.Foreground = new SolidColorBrush(ok ? ColorFromHex("#8ED7A5") : DangerColor);
+        ApplySaveToastTheme(ok);
         SaveToast.Visibility = Visibility.Visible;
         SaveToast.Opacity = 0;
         var tt = SaveToast.RenderTransform as TranslateTransform;
@@ -711,6 +868,21 @@ public partial class SettingsWindow : Window
             });
         _saveToastTimer.Stop();
         _saveToastTimer.Start();
+    }
+
+    private void ApplySaveToastTheme(bool ok)
+    {
+        SaveToast.Background = ok
+            ? SettingsThemeManager.SuccessBannerBgBrush
+            : SettingsThemeManager.DangerBannerBgBrush;
+        SaveToast.BorderBrush = ok
+            ? SettingsThemeManager.SuccessBannerBorderBrush
+            : SettingsThemeManager.DangerBannerBorderBrush;
+        SaveToastIcon.Data = (Geometry)FindResource(ok ? "IconCheck" : "IconAlert");
+        SaveToastIcon.Fill = ok ? SettingsThemeManager.GreenBrush : SettingsThemeManager.DangerBrush;
+        SaveToastText.Foreground = ok
+            ? SettingsThemeManager.SuccessBannerTextBrush
+            : SettingsThemeManager.DangerBannerTextBrush;
     }
 
     private void HideSaveToast()
@@ -792,6 +964,7 @@ public partial class SettingsWindow : Window
         var running = d.BridgeRunning;
         ConnStatusTitle.Text = Strings.Get(running ? "BridgeRunningTitle" : "BridgeStoppedTitle");
         ConnStatusSubtitle.Text = Strings.Get(running ? "BridgeRunningDesc" : "BridgeStoppedDesc");
+        ConnStatusHalo.Fill = SettingsThemeManager.StatusHaloBrush(running);
         ConnStatusDot.Fill = new SolidColorBrush(running ? GreenColor : DangerColor);
         ConnPulseRing.Fill = new SolidColorBrush(running ? GreenColor : DangerColor);
         ConnPulseRing.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
@@ -914,7 +1087,6 @@ public partial class SettingsWindow : Window
     private FrameworkElement BuildAgentCard(AgentInstallState status)
     {
         var agent = status.Agent;
-        var accent = ColorFromHex(agent.AccentHex);
         var card = new Border { Style = (Style)FindResource("AgentCard") };
 
         var grid = new Grid();
@@ -922,30 +1094,12 @@ public partial class SettingsWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var iconTile = new Border
-        {
-            Width = 38,
-            Height = 38,
-            CornerRadius = new CornerRadius(10),
-            Background = AlphaBrush(accent, 32),
-            BorderBrush = AlphaBrush(accent, 66),
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 12, 0)
-        };
-        var initial = string.IsNullOrWhiteSpace(agent.DisplayName)
-            ? "A"
-            : agent.DisplayName.Trim()[..1].ToUpperInvariant();
-        iconTile.Child = new TextBlock
-        {
-            Text = initial,
-            FontFamily = (FontFamily)FindResource("FontDisplay"),
-            FontSize = 15,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(accent),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var iconTile = AgentIconView.Create(
+            agent.Source,
+            size: 36,
+            isDark: SettingsThemeManager.IsDarkActive,
+            isMuted: false);
+        iconTile.Margin = new Thickness(0, 0, 12, 0);
         Grid.SetColumn(iconTile, 0);
         grid.Children.Add(iconTile);
 
@@ -956,7 +1110,7 @@ public partial class SettingsWindow : Window
             Text = agent.DisplayName,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)FindResource("BrushTextPrimary"),
+            Foreground = SettingsThemeManager.TextPrimaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         });
 
@@ -1023,7 +1177,7 @@ public partial class SettingsWindow : Window
             Text = status.ConfigPath,
             FontFamily = (FontFamily)FindResource("FontMono"),
             FontSize = 10.5,
-            Foreground = new SolidColorBrush(ColorFromHex("#677386")),
+            Foreground = SettingsThemeManager.TextTertiaryBrush,
             Margin = new Thickness(0, 4, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = status.ConfigPath
@@ -1115,21 +1269,28 @@ public partial class SettingsWindow : Window
     private void ShowAgentsFeedback(string message, bool ok)
     {
         if (AgentsFeedback is null) return;
-        var color = ok ? GreenColor : DangerColor;
-        AgentsFeedbackDot.Fill = new SolidColorBrush(color);
+        _lastAgentsFeedbackOk = ok;
         AgentsFeedbackText.Text = message;
-        AgentsFeedbackText.Foreground = new SolidColorBrush(ok ? ColorFromHex("#A9D9B9") : ColorFromHex("#F3B3B3"));
-        AgentsFeedback.Background = new SolidColorBrush(ok
-            ? Color.FromArgb(255, 17, 26, 32)
-            : Color.FromArgb(255, 32, 18, 21));
-        AgentsFeedback.BorderBrush = new SolidColorBrush(ok
-            ? Color.FromArgb(255, 42, 64, 80)
-            : Color.FromArgb(255, 86, 42, 49));
+        ApplyAgentsFeedbackTheme(ok);
         AgentsFeedback.Visibility = Visibility.Visible;
         AgentsFeedback.BeginAnimation(OpacityProperty,
             new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160)));
         _agentsFeedbackTimer.Stop();
         _agentsFeedbackTimer.Start();
+    }
+
+    private void ApplyAgentsFeedbackTheme(bool ok)
+    {
+        AgentsFeedbackDot.Fill = ok ? SettingsThemeManager.GreenBrush : SettingsThemeManager.DangerBrush;
+        AgentsFeedbackText.Foreground = ok
+            ? SettingsThemeManager.SuccessBannerTextBrush
+            : SettingsThemeManager.DangerBannerTextBrush;
+        AgentsFeedback.Background = ok
+            ? SettingsThemeManager.SuccessBannerBgBrush
+            : SettingsThemeManager.DangerBannerBgBrush;
+        AgentsFeedback.BorderBrush = ok
+            ? SettingsThemeManager.SuccessBannerBorderBrush
+            : SettingsThemeManager.DangerBannerBorderBrush;
     }
 
     private void HideAgentsFeedback()
@@ -1173,7 +1334,7 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private static (Color Accent, string Monogram) ResolveUsageVisuals(UsageWindowInfo usage, Color defaultAccent)
+    private static (AgentSource Source, Color Accent) ResolveUsageVisuals(UsageWindowInfo usage, Color defaultAccent)
     {
         var source = usage.Source;
         if (source == AgentSource.Unknown)
@@ -1188,19 +1349,15 @@ public partial class SettingsWindow : Window
                 source = AgentSource.DeepSeekHarness;
         }
 
-        return source switch
-        {
-            AgentSource.Claude => (ColorFromHex(AgentRegistry.Get(AgentSource.Claude).AccentHex), "C"),
-            AgentSource.Codex => (ColorFromHex(AgentRegistry.Get(AgentSource.Codex).AccentHex), "X"),
-            AgentSource.Antigravity => (ColorFromHex(AgentRegistry.Get(AgentSource.Antigravity).AccentHex), "A"),
-            AgentSource.DeepSeekHarness => (ColorFromHex(AgentRegistry.Get(AgentSource.DeepSeekHarness).AccentHex), "D"),
-            _ => (defaultAccent, "U")
-        };
+        var accent = source != AgentSource.Unknown
+            ? ColorFromHex(AgentRegistry.Get(source).AccentHex)
+            : defaultAccent;
+        return (source, accent);
     }
 
     private FrameworkElement BuildUsageCard(UsageWindowInfo usage)
     {
-        var (accent, monogram) = ResolveUsageVisuals(usage, AccentColor);
+        var (source, accent) = ResolveUsageVisuals(usage, AccentColor);
         var hasUpdatedTime = usage.LastUpdated.HasValue;
 
         var card = new Border
@@ -1218,26 +1375,11 @@ public partial class SettingsWindow : Window
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var headerLeft = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var iconTile = new Border
-        {
-            Width = 34,
-            Height = 34,
-            CornerRadius = new CornerRadius(9),
-            Background = AlphaBrush(accent, (byte)(usage.IsConnected ? 30 : 18)),
-            BorderBrush = AlphaBrush(accent, (byte)(usage.IsConnected ? 62 : 36)),
-            BorderThickness = new Thickness(1),
-            Margin = new Thickness(0, 0, 11, 0)
-        };
-        iconTile.Child = new TextBlock
-        {
-            Text = monogram,
-            FontFamily = (FontFamily)FindResource("FontDisplay"),
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(accent),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var iconTile = AgentIconView.Create(
+            source,
+            size: 28,
+            isDark: SettingsThemeManager.IsDarkActive);
+        iconTile.Margin = new Thickness(0, 0, 10, 0);
         headerLeft.Children.Add(iconTile);
         headerLeft.Children.Add(new TextBlock
         {
@@ -1245,7 +1387,7 @@ public partial class SettingsWindow : Window
             FontFamily = (FontFamily)FindResource("FontDisplay"),
             FontSize = 14,
             FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)FindResource("BrushTextPrimary"),
+            Foreground = SettingsThemeManager.TextPrimaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         });
 
@@ -1330,7 +1472,7 @@ public partial class SettingsWindow : Window
         {
             Text = Strings.Get(descKey),
             FontSize = 11,
-            Foreground = new SolidColorBrush(ColorFromHex("#8996A9")),
+            Foreground = SettingsThemeManager.TextSecondaryBrush,
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 16,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1411,7 +1553,7 @@ public partial class SettingsWindow : Window
             Text = title,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(ColorFromHex("#B5C0D0")),
+            Foreground = SettingsThemeManager.TextSecondaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         });
         return row;
@@ -1454,7 +1596,7 @@ public partial class SettingsWindow : Window
         var divider = new Border
         {
             Width = 1,
-            Background = new SolidColorBrush(ColorFromHex("#202632")),
+            Background = SettingsThemeManager.DividerBrush,
             Margin = new Thickness(0, 4, 16, 4)
         };
         Grid.SetColumn(divider, 2);
@@ -1481,13 +1623,13 @@ public partial class SettingsWindow : Window
             FontFamily = (FontFamily)FindResource("FontDisplay"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(ColorFromHex("#E6ECF5"))
+            Foreground = SettingsThemeManager.TextPrimaryBrush
         });
         info.Children.Add(new TextBlock
         {
             Text = quotaDesc,
             FontSize = 10.5,
-            Foreground = new SolidColorBrush(ColorFromHex("#8996A9")),
+            Foreground = SettingsThemeManager.TextSecondaryBrush,
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 15.5,
             MaxWidth = 310,
@@ -1552,14 +1694,14 @@ public partial class SettingsWindow : Window
                 FontFamily = (FontFamily)FindResource("FontMono"),
                 FontSize = 10.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(ColorFromHex("#D5DEEC")),
+                Foreground = SettingsThemeManager.TextPrimaryBrush,
                 VerticalAlignment = VerticalAlignment.Center
             });
             leftRow.Children.Add(new TextBlock
             {
                 Text = $"  ·  {Strings.Get("UsageRequestsFormat", m.RequestCount)}",
                 FontSize = 10,
-                Foreground = new SolidColorBrush(TertiaryColor),
+                Foreground = SettingsThemeManager.TextTertiaryBrush,
                 VerticalAlignment = VerticalAlignment.Center
             });
             Grid.SetColumn(leftRow, 0);
@@ -1572,7 +1714,7 @@ public partial class SettingsWindow : Window
                 FontFamily = (FontFamily)FindResource("FontMono"),
                 FontSize = 10.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(ColorFromHex("#F2F4F8")),
+                Foreground = SettingsThemeManager.TextPrimaryBrush,
                 VerticalAlignment = VerticalAlignment.Center
             });
             rightRow.Children.Add(new TextBlock
@@ -1581,7 +1723,7 @@ public partial class SettingsWindow : Window
                 FontFamily = (FontFamily)FindResource("FontMono"),
                 FontSize = 10,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(accent),
+                Foreground = new SolidColorBrush(SettingsThemeManager.ReadableAccent(accent)),
                 VerticalAlignment = VerticalAlignment.Center
             });
             Grid.SetColumn(rightRow, 1);
@@ -1594,7 +1736,7 @@ public partial class SettingsWindow : Window
             {
                 Height = 4,
                 CornerRadius = new CornerRadius(2),
-                Background = new SolidColorBrush(ColorFromHex("#161B24")),
+                Background = SettingsThemeManager.TrackBrush,
                 Margin = new Thickness(0, 4, 0, 0),
                 ClipToBounds = true
             };
@@ -1639,14 +1781,14 @@ public partial class SettingsWindow : Window
             Text = label,
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(ColorFromHex("#A6B0C0")),
+            Foreground = SettingsThemeManager.TextSecondaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         });
         var reqText = new TextBlock
         {
             Text = showValues ? Strings.Get("UsageRequestsFormat", window.RequestCount) : "—",
             FontSize = 10,
-            Foreground = new SolidColorBrush(TertiaryColor),
+            Foreground = SettingsThemeManager.TextTertiaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(reqText, 1);
@@ -1659,7 +1801,7 @@ public partial class SettingsWindow : Window
             FontFamily = (FontFamily)FindResource("FontDisplay"),
             FontSize = 20,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(showValues ? ColorFromHex("#F2F4F8") : TertiaryColor),
+            Foreground = showValues ? SettingsThemeManager.TextPrimaryBrush : SettingsThemeManager.TextTertiaryBrush,
             Margin = new Thickness(0, 3, 0, 4)
         });
 
@@ -1671,7 +1813,7 @@ public partial class SettingsWindow : Window
             Text = breakdown,
             FontFamily = (FontFamily)FindResource("FontMono"),
             FontSize = 9.5,
-            Foreground = new SolidColorBrush(showValues ? ColorFromHex("#8D9BB0") : TertiaryColor),
+            Foreground = showValues ? SettingsThemeManager.MonoTextBrush : SettingsThemeManager.TextTertiaryBrush,
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = breakdown
         });
@@ -1702,7 +1844,7 @@ public partial class SettingsWindow : Window
         {
             Width = 76,
             Height = 76,
-            Stroke = new SolidColorBrush(ColorFromHex("#1A1F29")),
+            Stroke = SettingsThemeManager.TrackBrush,
             StrokeThickness = 6.5,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
@@ -1739,13 +1881,13 @@ public partial class SettingsWindow : Window
             FontSize = 17,
             FontWeight = FontWeights.SemiBold,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Foreground = new SolidColorBrush(hasData ? ColorFromHex("#F2F4F8") : TertiaryColor)
+            Foreground = hasData ? SettingsThemeManager.TextPrimaryBrush : SettingsThemeManager.TextTertiaryBrush
         });
         center.Children.Add(new TextBlock
         {
             Text = label,
             FontSize = 8.5,
-            Foreground = new SolidColorBrush(TertiaryColor),
+            Foreground = SettingsThemeManager.TextTertiaryBrush,
             HorizontalAlignment = HorizontalAlignment.Center,
             Margin = new Thickness(0, 1.5, 0, 0)
         });
@@ -2001,5 +2143,5 @@ public partial class SettingsWindow : Window
     }
 
     private static SolidColorBrush AlphaBrush(Color color, byte alpha) =>
-        new(Color.FromArgb(alpha, color.R, color.G, color.B));
+        SettingsThemeManager.AlphaBrush(color, alpha, alpha);
 }

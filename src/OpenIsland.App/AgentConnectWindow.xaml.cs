@@ -2,7 +2,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Shapes;
+using OpenIsland.App.Controls;
+using OpenIsland.App.Themes;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Setup;
 
@@ -14,17 +15,53 @@ public partial class AgentConnectWindow : Window
     private List<AgentInstallState> _candidates = new();
     private readonly List<(AgentInstallState State, CheckBox Toggle)> _rows = new();
     private bool _completed;
-
-    private static readonly Color GreenColor = ColorFromHex("#6FB982");
-    private static readonly Color AmberColor = ColorFromHex("#E7A762");
-    private static readonly Color DangerColor = ColorFromHex("#F26D6D");
-    private static readonly Color AccentColor = ColorFromHex("#6EA7FF");
+    private bool _isClosed;
+    private bool _lastResultAllOk = true;
 
     public AgentConnectWindow(App app, IReadOnlyList<AgentInstallState> candidates)
     {
         InitializeComponent();
         _app = app;
+        SettingsThemeManager.ThemeChanged += OnSettingsThemeChanged;
+        Closed += (_, _) =>
+        {
+            _isClosed = true;
+            SettingsThemeManager.ThemeChanged -= OnSettingsThemeChanged;
+        };
         LoadCandidates(candidates);
+    }
+
+    private void OnSettingsThemeChanged(bool _)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnSettingsThemeChanged(_)));
+            return;
+        }
+        if (_isClosed) return;
+
+        // Preserve toggle checked states while rebuilding dynamically styled candidate rows.
+        var checkedByKey = _rows.ToDictionary(
+            r => r.State.Agent.CliKey,
+            r => r.Toggle.IsChecked == true,
+            StringComparer.OrdinalIgnoreCase);
+
+        _rows.Clear();
+        CandidatesHost.Children.Clear();
+        foreach (var candidate in _candidates)
+        {
+            var isChecked = !checkedByKey.TryGetValue(candidate.Agent.CliKey, out var prev) || prev;
+            var (card, toggle) = BuildCandidateRow(candidate, isChecked, !_completed);
+            _rows.Add((candidate, toggle));
+            CandidatesHost.Children.Add(card);
+        }
+
+        if (_completed && ResultBanner.Visibility == Visibility.Visible)
+        {
+            ApplyResultBannerTheme(_lastResultAllOk);
+        }
+
+        UpdateConfirmButton();
     }
 
     public void LoadCandidates(IReadOnlyList<AgentInstallState> candidates)
@@ -51,7 +88,7 @@ public partial class AgentConnectWindow : Window
 
         foreach (var candidate in _candidates)
         {
-            var (card, toggle) = BuildCandidateRow(candidate);
+            var (card, toggle) = BuildCandidateRow(candidate, isChecked: true, isEnabled: true);
             _rows.Add((candidate, toggle));
             CandidatesHost.Children.Add(card);
         }
@@ -59,10 +96,9 @@ public partial class AgentConnectWindow : Window
         UpdateConfirmButton();
     }
 
-    private (Border Card, CheckBox Toggle) BuildCandidateRow(AgentInstallState state)
+    private (Border Card, CheckBox Toggle) BuildCandidateRow(AgentInstallState state, bool isChecked, bool isEnabled)
     {
         var agent = state.Agent;
-        var accent = ColorFromHex(agent.AccentHex);
 
         var card = new Border
         {
@@ -76,30 +112,11 @@ public partial class AgentConnectWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var iconTile = new Border
-        {
-            Width = 36,
-            Height = 36,
-            CornerRadius = new CornerRadius(10),
-            Background = AlphaBrush(accent, 32),
-            BorderBrush = AlphaBrush(accent, 66),
-            BorderThickness = new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 12, 0)
-        };
-        var initial = string.IsNullOrWhiteSpace(agent.DisplayName)
-            ? "A"
-            : agent.DisplayName.Trim()[..1].ToUpperInvariant();
-        iconTile.Child = new TextBlock
-        {
-            Text = initial,
-            FontFamily = (FontFamily)FindResource("FontDisplay"),
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(accent),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var iconTile = AgentIconView.Create(
+            agent.Source,
+            size: 34,
+            isDark: SettingsThemeManager.IsDarkActive);
+        iconTile.Margin = new Thickness(0, 0, 12, 0);
         Grid.SetColumn(iconTile, 0);
         grid.Children.Add(iconTile);
 
@@ -110,18 +127,18 @@ public partial class AgentConnectWindow : Window
             Text = agent.DisplayName,
             FontSize = 13,
             FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)FindResource("BrushTextPrimary"),
+            Foreground = SettingsThemeManager.TextPrimaryBrush,
             VerticalAlignment = VerticalAlignment.Center
         });
 
         var isPartial = state.Status == HookInstallStatus.Partial;
-        var chipColor = isPartial ? AmberColor : AccentColor;
+        var chipColor = isPartial ? SettingsThemeManager.AmberColor : SettingsThemeManager.AccentColor;
         var chipLabel = isPartial ? Strings.Get("Partial") : Strings.Get("DetectedOnPc");
         var chip = new Border
         {
             Style = (Style)FindResource("StatusChip"),
-            Background = AlphaBrush(chipColor, 20),
-            BorderBrush = AlphaBrush(chipColor, 66),
+            Background = SettingsThemeManager.AlphaBrush(chipColor, darkAlpha: 22, lightAlpha: 24),
+            BorderBrush = SettingsThemeManager.AlphaBrush(chipColor, darkAlpha: 68, lightAlpha: 72),
             Margin = new Thickness(8, 0, 0, 0),
             Padding = new Thickness(6, 1, 6, 1)
         };
@@ -142,7 +159,7 @@ public partial class AgentConnectWindow : Window
                 Text = Strings.Get("AgentConnectDetectedVia", state.DetectionSource),
                 FontFamily = (FontFamily)FindResource("FontMono"),
                 FontSize = 10,
-                Foreground = new SolidColorBrush(ColorFromHex("#7D8A9F")),
+                Foreground = SettingsThemeManager.MonoTextBrush,
                 Margin = new Thickness(0, 3, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 ToolTip = state.DetectionSource
@@ -154,7 +171,7 @@ public partial class AgentConnectWindow : Window
             Text = Strings.Get("AgentConnectTargetCfg", state.ConfigPath),
             FontFamily = (FontFamily)FindResource("FontMono"),
             FontSize = 10,
-            Foreground = new SolidColorBrush(ColorFromHex("#677386")),
+            Foreground = SettingsThemeManager.TextTertiaryBrush,
             Margin = new Thickness(0, 2, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis,
             ToolTip = state.ConfigPath
@@ -166,7 +183,8 @@ public partial class AgentConnectWindow : Window
         var toggle = new CheckBox
         {
             Style = (Style)FindResource("ToggleSwitch"),
-            IsChecked = true,
+            IsChecked = isChecked,
+            IsEnabled = isEnabled,
             VerticalAlignment = VerticalAlignment.Center
         };
         toggle.Checked += (_, _) => UpdateConfirmButton();
@@ -211,16 +229,9 @@ public partial class AgentConnectWindow : Window
         }
 
         bool allOk = failures.Count == 0;
+        _lastResultAllOk = allOk;
         ResultBanner.Visibility = Visibility.Visible;
-        ResultBanner.Background = new SolidColorBrush(allOk
-            ? Color.FromArgb(255, 17, 34, 27)
-            : Color.FromArgb(255, 38, 22, 24));
-        ResultBanner.BorderBrush = new SolidColorBrush(allOk
-            ? Color.FromArgb(255, 40, 80, 62)
-            : Color.FromArgb(255, 102, 48, 56));
-        ResultIcon.Data = (Geometry)FindResource(allOk ? "IconCheck" : "IconAlert");
-        ResultIcon.Fill = new SolidColorBrush(allOk ? GreenColor : DangerColor);
-        ResultTitleText.Foreground = new SolidColorBrush(allOk ? ColorFromHex("#A9D9B9") : ColorFromHex("#F5B8B8"));
+        ApplyResultBannerTheme(allOk);
         ResultTitleText.Text = allOk
             ? Strings.Get("AgentConnectSuccess", succeeded)
             : Strings.Get("AgentConnectPartialFail", succeeded, failures.Count, string.Join("; ", failures));
@@ -230,6 +241,21 @@ public partial class AgentConnectWindow : Window
         LaterButton.Visibility = Visibility.Collapsed;
         ConfirmButton.Visibility = Visibility.Collapsed;
         DoneButton.Visibility = Visibility.Visible;
+    }
+
+    private void ApplyResultBannerTheme(bool allOk)
+    {
+        ResultBanner.Background = allOk
+            ? SettingsThemeManager.SuccessBannerBgBrush
+            : SettingsThemeManager.DangerBannerBgBrush;
+        ResultBanner.BorderBrush = allOk
+            ? SettingsThemeManager.SuccessBannerBorderBrush
+            : SettingsThemeManager.DangerBannerBorderBrush;
+        ResultIcon.Data = (Geometry)FindResource(allOk ? "IconCheck" : "IconAlert");
+        ResultIcon.Fill = allOk ? SettingsThemeManager.GreenBrush : SettingsThemeManager.DangerBrush;
+        ResultTitleText.Foreground = allOk
+            ? SettingsThemeManager.SuccessBannerTextBrush
+            : SettingsThemeManager.DangerBannerTextBrush;
     }
 
     private void DontAskButton_Click(object sender, RoutedEventArgs e)
@@ -267,13 +293,4 @@ public partial class AgentConnectWindow : Window
         }
         return null;
     }
-
-    private static Color ColorFromHex(string hex)
-    {
-        try { return (Color)ColorConverter.ConvertFromString(hex); }
-        catch { return Colors.Gray; }
-    }
-
-    private static SolidColorBrush AlphaBrush(Color color, byte alpha) =>
-        new(Color.FromArgb(alpha, color.R, color.G, color.B));
 }

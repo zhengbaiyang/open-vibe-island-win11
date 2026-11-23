@@ -7,7 +7,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        Foreground="{StaticResource BrushTextPrimary}"
+        Foreground="{DynamicResource SettingsTextPrimary}"
         FontFamily="{StaticResource FontBody}"
         ShowInTaskbar="True"
         ResizeMode="NoResize"
@@ -17,41 +17,28 @@
         Closing="Window_Closing"
         KeyDown="Window_KeyDown">
     <Window.Resources>
-        <Style TargetType="ToolTip">
-            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+        <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="HasDropShadow" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToolTip">
-                        <Border Background="#1A202B" BorderBrush="#303949" BorderThickness="1"
-                                CornerRadius="8" Padding="9,6">
-                            <ContentPresenter/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
         </Style>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource SettingsScrollBar}"/>
+        <Style TargetType="ToolTip" BasedOn="{StaticResource SettingsToolTip}"/>
     </Window.Resources>
 
     <!-- Rounded, softly shadowed window surface matching SettingsWindow. -->
     <Grid x:Name="RootFrame" Margin="20,18,20,22">
-        <Border Margin="1" CornerRadius="15" Background="#0B0D10" IsHitTestVisible="False">
+        <Border Margin="1" CornerRadius="15" Background="{DynamicResource SettingsWindowShadowFill}" IsHitTestVisible="False">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="2" Direction="270" Opacity="0.18"
+                <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="2" Direction="270" Opacity="0.22"
                                   RenderingBias="Quality"/>
             </Border.Effect>
         </Border>
 
-        <Border CornerRadius="16" BorderBrush="#262C38" BorderThickness="1">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop Color="#0E1117" Offset="0"/>
-                    <GradientStop Color="#0B0D10" Offset="0.55"/>
-                    <GradientStop Color="#0A0C10" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
+        <Border CornerRadius="16"
+                Background="{DynamicResource SettingsWindowBackground}"
+                BorderBrush="{DynamicResource SettingsWindowBorder}"
+                BorderThickness="1">
 
         <Grid>
             <Grid.RowDefinitions>
@@ -72,11 +59,11 @@
                     <Border Style="{StaticResource BrandMark}" Width="26" Height="26" CornerRadius="8"
                             Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Border Width="3" Height="8.5" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="8.5" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2,0"/>
-                            <Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="14" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2,0"/>
-                            <Border Width="3" Height="11" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="11" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -104,9 +91,11 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <Border Width="44" Height="44" CornerRadius="12" Background="#16233A"
-                                BorderBrush="#263B5C" BorderThickness="1" VerticalAlignment="Top">
-                            <Path Data="{StaticResource IconSparkle}" Fill="#6EA7FF" Width="20" Height="20"
+                        <Border Width="44" Height="44" CornerRadius="12"
+                                Background="{DynamicResource SettingsAccentTintBg}"
+                                BorderBrush="{DynamicResource SettingsAccentTintBorder}"
+                                BorderThickness="1" VerticalAlignment="Top">
+                            <Path Data="{StaticResource IconSparkle}" Fill="{DynamicResource SettingsAccent}" Width="20" Height="20"
                                   Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
 
@@ -116,15 +105,17 @@
                             <TextBlock x:Name="HeroSubtitleText" Style="{StaticResource CardDescText}"
                                        Margin="0,2,0,0"/>
                             <WrapPanel Margin="0,8,0,0" VerticalAlignment="Center">
-                                <Border Background="#17233A" BorderBrush="#2C466B" BorderThickness="1"
-                                        CornerRadius="7" Padding="8,2" Margin="0,0,8,4">
+                                <Border Background="{DynamicResource SettingsAccentTintBg}"
+                                        BorderBrush="{DynamicResource SettingsAccentTintBorder}"
+                                        BorderThickness="1" CornerRadius="7" Padding="8,2" Margin="0,0,8,4">
                                     <TextBlock x:Name="VersionDiffBadgeText" FontFamily="{StaticResource FontMono}"
-                                               FontSize="10.5" FontWeight="SemiBold" Foreground="#8FB8F0"/>
+                                               FontSize="10.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource SettingsAccentText}"/>
                                 </Border>
                                 <TextBlock x:Name="PublishedAtText" Style="{StaticResource CaptionText}"
                                            Margin="0,0,8,4"/>
                                 <TextBlock x:Name="AssetSizeText" Style="{StaticResource MonoText}"
-                                           FontSize="10.5" Foreground="{StaticResource BrushTextTertiary}"
+                                           FontSize="10.5" Foreground="{DynamicResource SettingsTextTertiary}"
                                            Margin="0,0,0,4"/>
                             </WrapPanel>
                         </StackPanel>
@@ -141,16 +132,18 @@
 
                     <!-- Development build warning banner -->
                     <Border x:Name="DevWarningBanner" Visibility="Collapsed"
-                            Background="#1E170F" BorderBrush="#4C381F" BorderThickness="1"
-                            CornerRadius="11" Padding="13,10" Margin="0,14,0,0">
+                            Background="{DynamicResource SettingsWarningBg}"
+                            BorderBrush="{DynamicResource SettingsWarningBorder}"
+                            BorderThickness="1" CornerRadius="11" Padding="13,10" Margin="0,14,0,0">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Path Data="{StaticResource IconAlert}" Fill="#E7A762" Width="15" Height="15"
+                            <Path Data="{StaticResource IconAlert}" Fill="{DynamicResource SettingsAmber}" Width="15" Height="15"
                                   Stretch="Uniform" VerticalAlignment="Top" Margin="0,2,10,0"/>
-                            <TextBlock x:Name="DevWarningText" Grid.Column="1" Foreground="#F0C58B"
+                            <TextBlock x:Name="DevWarningText" Grid.Column="1"
+                                       Foreground="{DynamicResource SettingsWarningText}"
                                        FontSize="11.5" TextWrapping="Wrap" LineHeight="17"/>
                         </Grid>
                     </Border>
@@ -178,7 +171,7 @@
                                               HorizontalScrollBarVisibility="Disabled"
                                               MinHeight="84" MaxHeight="190" Focusable="False">
                                     <TextBlock x:Name="ReleaseNotesText" FontSize="11.5"
-                                               Foreground="{StaticResource BrushTextSecondary}"
+                                               Foreground="{DynamicResource SettingsTextSecondary}"
                                                TextWrapping="Wrap" LineHeight="18"/>
                                 </ScrollViewer>
                             </Border>
@@ -193,30 +186,36 @@
                                 <TextBlock x:Name="ProgressStageText" Style="{StaticResource FieldLabelText}"
                                            FontSize="12.5"/>
                                 <TextBlock x:Name="ProgressPercentText" Style="{StaticResource MonoText}"
-                                           FontSize="11.5" Foreground="#8FB8F0" HorizontalAlignment="Right"/>
+                                           FontSize="11.5" Foreground="{DynamicResource SettingsAccentText}"
+                                           HorizontalAlignment="Right"/>
                             </Grid>
                             <ProgressBar x:Name="DownloadProgressBar" Style="{StaticResource ModernProgressBar}"
                                          Margin="0,12,0,9"/>
                             <TextBlock x:Name="ProgressDetailText" Style="{StaticResource MonoText}"
-                                       FontSize="10.5" Foreground="{StaticResource BrushTextTertiary}"
+                                       FontSize="10.5" Foreground="{DynamicResource SettingsTextTertiary}"
                                        TextTrimming="CharacterEllipsis"/>
                         </StackPanel>
                     </Border>
 
                     <!-- Failure panel (download / checksum / staging / launch error) -->
-                    <Border x:Name="FailureCard" Background="#1D1215" BorderBrush="#592A32" BorderThickness="1"
-                            CornerRadius="12" Padding="14,12" Margin="0,14,0,0" Visibility="Collapsed">
+                    <Border x:Name="FailureCard"
+                            Background="{DynamicResource SettingsDangerBg}"
+                            BorderBrush="{DynamicResource SettingsDangerBorder}"
+                            BorderThickness="1" CornerRadius="12" Padding="14,12" Margin="0,14,0,0"
+                            Visibility="Collapsed">
                         <StackPanel>
                             <StackPanel Orientation="Horizontal">
-                                <Path Data="{StaticResource IconAlert}" Fill="#F26D6D" Width="14" Height="14"
+                                <Path Data="{StaticResource IconAlert}" Fill="{DynamicResource SettingsDanger}" Width="14" Height="14"
                                       Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                 <TextBlock x:Name="FailureTitleText" FontFamily="{StaticResource FontDisplay}"
-                                           FontSize="13" FontWeight="SemiBold" Foreground="#F6A6A6"/>
+                                           FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource SettingsDangerText}"/>
                             </StackPanel>
                             <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled" Margin="0,8,0,0"
                                           Focusable="False">
-                                <TextBlock x:Name="FailureMessageText" FontSize="11.5" Foreground="#E5B8BD"
+                                <TextBlock x:Name="FailureMessageText" FontSize="11.5"
+                                           Foreground="{DynamicResource SettingsDangerText}"
                                            TextWrapping="Wrap" LineHeight="17"/>
                             </ScrollViewer>
                         </StackPanel>
@@ -248,7 +247,7 @@
                                 </Border>
                             </WrapPanel>
                             <TextBlock x:Name="StatusMessageText" Style="{StaticResource CardDescText}"
-                                       FontSize="12" Foreground="{StaticResource BrushTextSecondary}"
+                                       FontSize="12" Foreground="{DynamicResource SettingsTextSecondary}"
                                        Margin="0,5,0,0"/>
                         </StackPanel>
                     </Grid>
@@ -260,19 +259,21 @@
                     </StackPanel>
 
                     <Border x:Name="StatusErrorBox" Style="{StaticResource InnerTile}"
-                            Background="#181014" BorderBrush="#4A272D" Margin="0,14,0,0"
-                            Visibility="Collapsed">
+                            Background="{DynamicResource SettingsDangerBg}"
+                            BorderBrush="{DynamicResource SettingsDangerBorder}"
+                            Margin="0,14,0,0" Visibility="Collapsed">
                         <ScrollViewer MaxHeight="100" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled" Focusable="False">
                             <TextBlock x:Name="StatusErrorDetailText" Style="{StaticResource MonoText}"
-                                       FontSize="10.5" Foreground="#E3A5AC" TextWrapping="Wrap"/>
+                                       FontSize="10.5" Foreground="{DynamicResource SettingsDangerText}"
+                                       TextWrapping="Wrap"/>
                         </ScrollViewer>
                     </Border>
                 </StackPanel>
             </Grid>
 
             <!-- ================= Bottom action bar ================= -->
-            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#1A1F29" Padding="22,14">
+            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SettingsDividerBrush}" Padding="22,14">
                 <Grid>
                     <!-- Left action -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">

@@ -8,7 +8,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        Foreground="{StaticResource BrushTextPrimary}"
+        Foreground="{DynamicResource SettingsTextPrimary}"
         FontFamily="{StaticResource FontBody}"
         ShowInTaskbar="True"
         ResizeMode="NoResize"
@@ -17,40 +17,27 @@
         UseLayoutRounding="True"
         KeyDown="Window_KeyDown">
     <Window.Resources>
-        <Style TargetType="ToolTip">
-            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+        <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="HasDropShadow" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToolTip">
-                        <Border Background="#1A202B" BorderBrush="#303949" BorderThickness="1"
-                                CornerRadius="8" Padding="9,6">
-                            <ContentPresenter/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
         </Style>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource SettingsScrollBar}"/>
+        <Style TargetType="ToolTip" BasedOn="{StaticResource SettingsToolTip}"/>
     </Window.Resources>
 
     <Grid x:Name="RootFrame" Margin="20,18,20,22">
-        <Border Margin="1" CornerRadius="15" Background="#0B0D10" IsHitTestVisible="False">
+        <Border Margin="1" CornerRadius="15" Background="{DynamicResource SettingsWindowShadowFill}" IsHitTestVisible="False">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="2" Direction="270" Opacity="0.18"
+                <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="2" Direction="270" Opacity="0.22"
                                   RenderingBias="Quality"/>
             </Border.Effect>
         </Border>
 
-        <Border CornerRadius="16" BorderBrush="#262C38" BorderThickness="1">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop Color="#0E1117" Offset="0"/>
-                    <GradientStop Color="#0B0D10" Offset="0.55"/>
-                    <GradientStop Color="#0A0C10" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
+        <Border CornerRadius="16"
+                Background="{DynamicResource SettingsWindowBackground}"
+                BorderBrush="{DynamicResource SettingsWindowBorder}"
+                BorderThickness="1">
 
         <Grid>
             <Grid.RowDefinitions>
@@ -71,11 +58,11 @@
                     <Border Style="{StaticResource BrandMark}" Width="26" Height="26" CornerRadius="8"
                             Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Border Width="3" Height="8.5" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="8.5" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2,0"/>
-                            <Border Width="3" Height="14" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="14" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2,0"/>
-                            <Border Width="3" Height="11" CornerRadius="1.5" Background="{StaticResource BrushPaper}"
+                            <Border Width="3" Height="11" CornerRadius="1.5" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -97,10 +84,12 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <Border Width="42" Height="42" CornerRadius="12" Background="#16233A"
-                            BorderBrush="#2C466B" BorderThickness="1" Margin="0,2,14,0"
+                    <Border Width="42" Height="42" CornerRadius="12"
+                            Background="{DynamicResource SettingsAccentTintBg}"
+                            BorderBrush="{DynamicResource SettingsAccentTintBorder}"
+                            BorderThickness="1" Margin="0,2,14,0"
                             VerticalAlignment="Top">
-                        <Path Data="{StaticResource IconSparkle}" Fill="#6EA7FF" Width="18" Height="18"
+                        <Path Data="{StaticResource IconSparkle}" Fill="{DynamicResource SettingsAccent}" Width="18" Height="18"
                               Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1">
@@ -117,14 +106,15 @@
                 </ScrollViewer>
 
                 <Border x:Name="ResultBanner" Visibility="Collapsed" Margin="0,12,0,0"
-                        Background="#11221B" BorderBrush="#28503E" BorderThickness="1"
-                        CornerRadius="11" Padding="13,10">
+                        Background="{DynamicResource SettingsSuccessBg}"
+                        BorderBrush="{DynamicResource SettingsSuccessBorder}"
+                        BorderThickness="1" CornerRadius="11" Padding="13,10">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
                             <Path x:Name="ResultIcon" Data="{StaticResource IconCheck}" Width="13" Height="13"
-                                  Stretch="Uniform" Fill="#6FB982" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                  Stretch="Uniform" Fill="{DynamicResource SettingsGreen}" Margin="0,0,8,0" VerticalAlignment="Center"/>
                             <TextBlock x:Name="ResultTitleText" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="#A9D9B9" TextWrapping="Wrap"/>
+                                       Foreground="{DynamicResource SettingsSuccessText}" TextWrapping="Wrap"/>
                         </StackPanel>
                         <TextBlock x:Name="ResultHintText" Style="{StaticResource CaptionText}"
                                    Margin="21,4,0,0" TextWrapping="Wrap"/>
@@ -133,7 +123,7 @@
             </StackPanel>
 
             <!-- Footer -->
-            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#1C222D"
+            <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SettingsDividerBrush}"
                     Padding="22,14,22,16">
                 <Grid>
                     <Grid.ColumnDefinitions>

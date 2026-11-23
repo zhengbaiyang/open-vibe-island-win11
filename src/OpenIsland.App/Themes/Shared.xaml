@@ -63,7 +63,6 @@
 
     <Style TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
-        <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
         <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
         <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
     </Style>

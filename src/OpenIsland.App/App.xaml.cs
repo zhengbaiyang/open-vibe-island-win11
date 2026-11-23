@@ -4,6 +4,7 @@ using System.Media;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
+using OpenIsland.App.Themes;
 using OpenIsland.Core.Diagnostics;
 using OpenIsland.Core.Discovery;
 using OpenIsland.Core.Hooks;
@@ -92,6 +93,7 @@ public partial class App : System.Windows.Application
 
         Settings = AppSettings.Load();
         Strings.CurrentLanguage = Settings.Language;
+        SettingsThemeManager.Initialize(Settings.SettingsAppearance);
         Reducer.CoalesceRecurringSessions = Settings.CoalesceRecurringSessions;
 
         Updater = new UpdateService(currentVersion: UpdateService.GetCurrentAppVersion(Assembly.GetExecutingAssembly()));
@@ -355,9 +357,10 @@ public partial class App : System.Windows.Application
     {
         Settings = updated;
         Strings.CurrentLanguage = updated.Language;
+        SettingsThemeManager.Apply(updated.SettingsAppearance);
         Reducer.CoalesceRecurringSessions = updated.CoalesceRecurringSessions;
         updated.Save();
-        AppLog.Info($"settings saved: lang={updated.Language} edge={updated.EdgePosition} theme={updated.ThemeStyle} monitor={updated.MonitorIndex} startup={updated.LaunchAtStartup} autoUpdate={updated.AutoCheckForUpdates}");
+        AppLog.Info($"settings saved: lang={updated.Language} edge={updated.EdgePosition} theme={updated.ThemeStyle} appearance={updated.SettingsAppearance} monitor={updated.MonitorIndex} startup={updated.LaunchAtStartup} autoUpdate={updated.AutoCheckForUpdates}");
 
         if (_pollTimer != null)
         {
@@ -727,6 +730,7 @@ public partial class App : System.Windows.Application
     private void TearDownResources()
     {
         try { _shutdownCts.Cancel(); } catch { }
+        SettingsThemeManager.Shutdown();
         _pollTimer?.Stop();
         _selfTestTimer?.Stop();
         SessionPersistence.Save(Reducer.GetActiveSessions());

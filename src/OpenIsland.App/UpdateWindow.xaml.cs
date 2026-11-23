@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using OpenIsland.App.Themes;
 using OpenIsland.Core.Diagnostics;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Updates;
@@ -35,10 +36,10 @@ public partial class UpdateWindow : Window
     private bool _hasCentered;
     private bool _allowCloseDuringRestart;
 
-    private static readonly Color AccentColor = ColorFromHex("#6EA7FF");
-    private static readonly Color GreenColor = ColorFromHex("#6FB982");
-    private static readonly Color AmberColor = ColorFromHex("#E7A762");
-    private static readonly Color DangerColor = ColorFromHex("#F26D6D");
+    private static Color AccentColor => SettingsThemeManager.AccentColor;
+    private static Color GreenColor => SettingsThemeManager.GreenColor;
+    private static Color AmberColor => SettingsThemeManager.AmberColor;
+    private static Color DangerColor => SettingsThemeManager.DangerColor;
 
     public bool IsBusy => _state is ViewState.Downloading
         or ViewState.Verifying
@@ -55,6 +56,7 @@ public partial class UpdateWindow : Window
     {
         InitializeComponent();
         _app = app;
+        SettingsThemeManager.ThemeChanged += OnSettingsThemeChanged;
         ClampMaxHeightToWorkArea();
         Loaded += (_, _) => CenterOnWorkAreaOnce();
         ShowRelease(release);
@@ -64,9 +66,36 @@ public partial class UpdateWindow : Window
     {
         InitializeComponent();
         _app = app;
+        SettingsThemeManager.ThemeChanged += OnSettingsThemeChanged;
         ClampMaxHeightToWorkArea();
         Loaded += (_, _) => CenterOnWorkAreaOnce();
         ShowCheckResult(checkResult);
+    }
+
+    private void OnSettingsThemeChanged(bool _)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(new Action(() => OnSettingsThemeChanged(_)));
+            return;
+        }
+        if (!IsLoaded) return;
+
+        if (_release is not null)
+        {
+            ApplyInstallModeChip(_release.InstallMode, InstallModeChip, InstallModeText, InstallModeDot);
+        }
+
+        if (_state == ViewState.StatusChecking)
+        {
+            StatusIconBadge.Background = SettingsThemeManager.AlphaBrush(AccentColor, 26, 24);
+            StatusIconBadge.BorderBrush = SettingsThemeManager.AlphaBrush(AccentColor, 82, 76);
+            StatusIconPath.Fill = new SolidColorBrush(AccentColor);
+        }
+        else if (_checkResult is not null)
+        {
+            PopulateStatusDetails(_checkResult);
+        }
     }
 
     public void ShowRelease(UpdateReleaseInfo release)
@@ -655,6 +684,7 @@ public partial class UpdateWindow : Window
         }
 
         CancelPendingCheck();
+        SettingsThemeManager.ThemeChanged -= OnSettingsThemeChanged;
     }
 
     private void CancelPendingCheck()
@@ -706,18 +736,6 @@ public partial class UpdateWindow : Window
         return null;
     }
 
-    private static Color ColorFromHex(string hex)
-    {
-        try
-        {
-            return (Color)ColorConverter.ConvertFromString(hex);
-        }
-        catch
-        {
-            return Colors.Gray;
-        }
-    }
-
     private static SolidColorBrush AlphaBrush(Color color, byte alpha) =>
-        new(Color.FromArgb(alpha, color.R, color.G, color.B));
+        SettingsThemeManager.AlphaBrush(color, alpha, alpha);
 }

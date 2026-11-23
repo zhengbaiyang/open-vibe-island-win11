@@ -9,7 +9,7 @@
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
-        Foreground="{StaticResource BrushTextPrimary}"
+        Foreground="{DynamicResource SettingsTextPrimary}"
         FontFamily="{StaticResource FontBody}"
         ShowInTaskbar="True"
         ResizeMode="NoResize"
@@ -20,42 +20,29 @@
         Closing="Window_Closing"
         KeyDown="Window_KeyDown">
     <Window.Resources>
-        <Style TargetType="ToolTip">
-            <Setter Property="Foreground" Value="{StaticResource BrushTextPrimary}"/>
+        <Style TargetType="TextBlock">
             <Setter Property="FontFamily" Value="{StaticResource FontBody}"/>
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="HasDropShadow" Value="True"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ToolTip">
-                        <Border Background="#1A202B" BorderBrush="#303949" BorderThickness="1"
-                                CornerRadius="8" Padding="9,6">
-                            <ContentPresenter/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Setter Property="TextOptions.TextFormattingMode" Value="Ideal"/>
+            <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
         </Style>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource SettingsScrollBar}"/>
+        <Style TargetType="ToolTip" BasedOn="{StaticResource SettingsToolTip}"/>
     </Window.Resources>
 
     <!-- Rounded, softly shadowed window surface. Margin leaves full room for the centered shadow with zero edge clipping. -->
     <Grid x:Name="RootFrame" Margin="20,18,20,22">
         <!-- Separate shadow caster so UI content retains crisp ClearType rendering and smooth animations. -->
-        <Border Margin="1" CornerRadius="15" Background="#0B0D10" IsHitTestVisible="False">
+        <Border Margin="1" CornerRadius="15" Background="{DynamicResource SettingsWindowShadowFill}" IsHitTestVisible="False">
             <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="2" Direction="270" Opacity="0.18"
+                <DropShadowEffect Color="Black" BlurRadius="22" ShadowDepth="2" Direction="270" Opacity="0.22"
                                   RenderingBias="Quality"/>
             </Border.Effect>
         </Border>
 
-        <Border CornerRadius="16" BorderBrush="#262C38" BorderThickness="1">
-            <Border.Background>
-                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                    <GradientStop Color="#0E1117" Offset="0"/>
-                    <GradientStop Color="#0B0D10" Offset="0.55"/>
-                    <GradientStop Color="#0A0C10" Offset="1"/>
-                </LinearGradientBrush>
-            </Border.Background>
+        <Border CornerRadius="16"
+                Background="{DynamicResource SettingsWindowBackground}"
+                BorderBrush="{DynamicResource SettingsWindowBorder}"
+                BorderThickness="1">
 
         <Grid>
             <Grid.RowDefinitions>
@@ -75,19 +62,19 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="22,0,0,0">
                     <Border Style="{StaticResource BrandMark}" Margin="0,0,10,0">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Border Width="3.5" Height="10" CornerRadius="2" Background="{StaticResource BrushPaper}"
+                            <Border Width="3.5" Height="10" CornerRadius="2" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2.5,0"/>
-                            <Border Width="3.5" Height="17" CornerRadius="2" Background="{StaticResource BrushPaper}"
+                            <Border Width="3.5" Height="17" CornerRadius="2" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center" Margin="0,0,2.5,0"/>
-                            <Border Width="3.5" Height="13" CornerRadius="2" Background="{StaticResource BrushPaper}"
+                            <Border Width="3.5" Height="13" CornerRadius="2" Background="{DynamicResource SettingsBrandMarkBars}"
                                     VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
                     <TextBlock Text="Open Island" FontFamily="{StaticResource FontDisplay}" FontSize="13.5"
                                FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    <Border Width="1" Height="12" Background="#2A3140" Margin="10,0" VerticalAlignment="Center"/>
+                    <Border Width="1" Height="12" Background="{DynamicResource SettingsStroke}" Margin="10,0" VerticalAlignment="Center"/>
                     <TextBlock x:Name="TitleVersionText" Style="{StaticResource MonoText}" FontSize="10.5"
-                               Foreground="{StaticResource BrushTextTertiary}" VerticalAlignment="Center"/>
+                               Foreground="{DynamicResource SettingsTextTertiary}" VerticalAlignment="Center"/>
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
@@ -155,9 +142,9 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Name="SidebarHotkeyText" FontFamily="{StaticResource FontMono}"
-                                           FontSize="10.5" Foreground="{StaticResource BrushTextSecondary}"
+                                           FontSize="10.5" Foreground="{DynamicResource SettingsTextSecondary}"
                                            VerticalAlignment="Center"/>
-                                <Ellipse Grid.Column="1" Width="5" Height="5" Fill="#6EA7FF" Opacity="0.85"
+                                <Ellipse Grid.Column="1" Width="5" Height="5" Fill="{DynamicResource SettingsAccent}" Opacity="0.85"
                                          VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
@@ -165,7 +152,7 @@
                                 HorizontalAlignment="Stretch" Click="OpenLogsButton_Click">
                             <StackPanel Orientation="Horizontal">
                                 <Path Data="{StaticResource IconFolder}" Width="12" Height="12" Stretch="Uniform"
-                                      Fill="#9AA6B8" Margin="0,0,7,0"
+                                      Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,7,0"
                                       VerticalAlignment="Center"/>
                                 <TextBlock x:Name="SidebarLogsLabel" FontSize="11" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -173,7 +160,7 @@
                     </StackPanel>
                 </Grid>
 
-                <Border Grid.Column="1" Width="1" Background="#1A1F29" Margin="0,16,0,16"/>
+                <Border Grid.Column="1" Width="1" Background="{DynamicResource SettingsDividerBrush}" Margin="0,16,0,16"/>
 
                 <!-- Content area -->
                 <Grid Grid.Column="2">
@@ -191,7 +178,7 @@
                         </StackPanel>
                         <TextBlock x:Name="PageIndexText" Grid.Column="1" HorizontalAlignment="Right"
                                    VerticalAlignment="Top" FontFamily="{StaticResource FontMono}" FontSize="10.5"
-                                   Foreground="{StaticResource BrushTextTertiary}" Margin="0,5,0,0"/>
+                                   Foreground="{DynamicResource SettingsTextTertiary}" Margin="0,5,0,0"/>
                     </Grid>
 
                     <Grid Grid.Row="1">
@@ -234,10 +221,10 @@
                                                         </EventTrigger>
                                                     </Ellipse.Triggers>
                                                 </Ellipse>
-                                                <Ellipse Width="38" Height="38" Fill="#12231C"/>
-                                                <Ellipse x:Name="ConnStatusDot" Width="15" Height="15" Fill="#6FB982">
+                                                <Ellipse x:Name="ConnStatusHalo" Width="38" Height="38" Fill="{DynamicResource SettingsSuccessBg}"/>
+                                                <Ellipse x:Name="ConnStatusDot" Width="15" Height="15" Fill="{DynamicResource SettingsGreen}">
                                                     <Ellipse.Effect>
-                                                        <DropShadowEffect Color="#5FCF87" BlurRadius="12" ShadowDepth="0" Opacity="0.55"/>
+                                                        <DropShadowEffect Color="#5FCF87" BlurRadius="12" ShadowDepth="0" Opacity="0.45"/>
                                                     </Ellipse.Effect>
                                                 </Ellipse>
                                             </Grid>
@@ -290,21 +277,24 @@
                                 </Border>
 
                                 <Border x:Name="NoEventsHint" Style="{StaticResource Card}" Padding="16"
-                                        Margin="0,0,0,12" Background="#101722" BorderBrush="#27354B">
+                                        Margin="0,0,0,12"
+                                        Background="{DynamicResource SettingsAccentTintBg}"
+                                        BorderBrush="{DynamicResource SettingsAccentTintBorder}">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="42" Height="42" CornerRadius="11" Background="#16233A"
-                                                BorderBrush="#263B5C" BorderThickness="1">
+                                        <Border Width="42" Height="42" CornerRadius="11"
+                                                Background="{DynamicResource SettingsAccentBadgeBg}"
+                                                BorderBrush="{DynamicResource SettingsAccentTintBorder}" BorderThickness="1">
                                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
                                                         VerticalAlignment="Center">
-                                                <Border Width="3" Height="9" CornerRadius="1.5" Background="#6EA7FF"
+                                                <Border Width="3" Height="9" CornerRadius="1.5" Background="{DynamicResource SettingsAccent}"
                                                         Margin="0,0,2,0" VerticalAlignment="Center"/>
                                                 <Border Width="3" Height="18" CornerRadius="1.5" Background="#8B7CF6"
                                                         Margin="0,0,2,0" VerticalAlignment="Center"/>
-                                                <Border Width="3" Height="13" CornerRadius="1.5" Background="#6EA7FF"
+                                                <Border Width="3" Height="13" CornerRadius="1.5" Background="{DynamicResource SettingsAccent}"
                                                         VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Border>
@@ -326,7 +316,7 @@
                                             </Grid.ColumnDefinitions>
                                             <StackPanel>
                                                 <StackPanel Orientation="Horizontal">
-                                                    <Path Data="{StaticResource IconBolt}" Fill="#6EA7FF" Width="14" Height="14"
+                                                    <Path Data="{StaticResource IconBolt}" Fill="{DynamicResource SettingsAccent}" Width="14" Height="14"
                                                           Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="SelfTestTitle" Style="{StaticResource CardTitleText}"/>
                                                 </StackPanel>
@@ -339,7 +329,7 @@
                                                         Margin="0,0,8,0" Click="OpenLogsButton_Click">
                                                     <StackPanel Orientation="Horizontal">
                                                         <Path Data="{StaticResource IconFolder}" Width="12" Height="12"
-                                                              Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                              Stretch="Uniform" Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,6,0"
                                                               VerticalAlignment="Center"/>
                                                         <TextBlock x:Name="OpenLogsButtonText" FontSize="11.5"/>
                                                     </StackPanel>
@@ -367,9 +357,10 @@
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="38" Height="38" CornerRadius="10" Background="#131A24"
-                                                BorderBrush="#253040" BorderThickness="1">
-                                            <Path Data="{StaticResource IconTerminal}" Fill="#7FA8DF" Width="17"
+                                        <Border Width="38" Height="38" CornerRadius="10"
+                                                Background="{DynamicResource SettingsInset}"
+                                                BorderBrush="{DynamicResource SettingsStroke}" BorderThickness="1">
+                                            <Path Data="{StaticResource IconTerminal}" Fill="{DynamicResource SettingsIconAccent}" Width="17"
                                                   Height="17" Stretch="Uniform" HorizontalAlignment="Center"
                                                   VerticalAlignment="Center"/>
                                         </Border>
@@ -426,7 +417,7 @@
                                                 Margin="0,0,8,0" Click="RefreshAgentsButton_Click">
                                             <StackPanel Orientation="Horizontal">
                                                 <Path Data="{StaticResource IconRefresh}" Width="12" Height="12"
-                                                      Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                      Stretch="Uniform" Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,6,0"
                                                       VerticalAlignment="Center"/>
                                                 <TextBlock x:Name="RefreshAgentsText" FontSize="11"/>
                                             </StackPanel>
@@ -439,11 +430,12 @@
                                 </Grid>
 
                                 <Border x:Name="AgentsFeedback" Visibility="Collapsed" Opacity="0"
-                                        Background="#111A20" BorderBrush="#2A4050" BorderThickness="1"
+                                        Background="{DynamicResource SettingsSuccessBg}"
+                                        BorderBrush="{DynamicResource SettingsSuccessBorder}" BorderThickness="1"
                                         CornerRadius="9" Padding="11,7" Margin="0,0,0,10"
                                         HorizontalAlignment="Left">
                                     <StackPanel Orientation="Horizontal">
-                                        <Ellipse x:Name="AgentsFeedbackDot" Width="6" Height="6" Fill="#6FB982"
+                                        <Ellipse x:Name="AgentsFeedbackDot" Width="6" Height="6" Fill="{DynamicResource SettingsGreen}"
                                                  VerticalAlignment="Center" Margin="0,0,8,0"/>
                                         <TextBlock x:Name="AgentsFeedbackText" FontSize="11" TextWrapping="Wrap"
                                                    MaxWidth="620"/>
@@ -473,7 +465,7 @@
                                             Click="RefreshUsageButton_Click">
                                         <StackPanel Orientation="Horizontal">
                                             <Path Data="{StaticResource IconRefresh}" Width="12" Height="12"
-                                                  Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                  Stretch="Uniform" Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,6,0"
                                                   VerticalAlignment="Center"/>
                                             <TextBlock x:Name="RefreshUsageText" FontSize="11"/>
                                         </StackPanel>
@@ -481,16 +473,19 @@
                                 </Grid>
 
                                 <Border x:Name="UsageHintBanner" Style="{StaticResource Card}" Padding="15"
-                                        Margin="0,0,0,12" Background="#101722" BorderBrush="#27354B"
+                                        Margin="0,0,0,12"
+                                        Background="{DynamicResource SettingsAccentTintBg}"
+                                        BorderBrush="{DynamicResource SettingsAccentTintBorder}"
                                         Visibility="Collapsed">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="38" Height="38" CornerRadius="10" Background="#16233A"
-                                                BorderBrush="#263B5C" BorderThickness="1">
-                                            <Path Data="{StaticResource IconClock}" Fill="#6EA7FF" Width="17" Height="17"
+                                        <Border Width="38" Height="38" CornerRadius="10"
+                                                Background="{DynamicResource SettingsAccentBadgeBg}"
+                                                BorderBrush="{DynamicResource SettingsAccentTintBorder}" BorderThickness="1">
+                                            <Path Data="{StaticResource IconClock}" Fill="{DynamicResource SettingsAccent}" Width="17" Height="17"
                                                   Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" Margin="13,0,0,0" VerticalAlignment="Center">
@@ -516,191 +511,264 @@
                             <ScrollViewer.RenderTransform>
                                 <TranslateTransform/>
                             </ScrollViewer.RenderTransform>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="320"/>
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                                        <StackPanel>
+                            <StackPanel>
+                                <!-- Settings Window Light / Dark / Follow-System Theme Switcher -->
+                                <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
                                             <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource IconDesktop}" Fill="#7FA8DF" Width="14"
-                                                      Height="14" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                                                <TextBlock x:Name="MonitorCardTitle" Style="{StaticResource CardTitleText}"/>
+                                                <Path Data="{StaticResource IconThemeContrast}" Fill="{DynamicResource SettingsIconAccent}"
+                                                      Width="14" Height="14" Stretch="Uniform" Margin="0,0,7,0"
+                                                      VerticalAlignment="Center"/>
+                                                <TextBlock x:Name="SettingsAppearanceTitle" Style="{StaticResource CardTitleText}"/>
                                             </StackPanel>
-                                            <TextBlock x:Name="MonitorCardDesc" Style="{StaticResource CardDescText}"
-                                                       Margin="0,4,0,10" MaxWidth="400" HorizontalAlignment="Left"/>
-                                            <ComboBox x:Name="MonitorCombo" Style="{StaticResource DarkComboBox}"
-                                                      HorizontalAlignment="Stretch"/>
-                                            <TextBlock x:Name="MonitorHintText" Style="{StaticResource CaptionText}"
-                                                       Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                            <TextBlock x:Name="SettingsAppearanceHint" Style="{StaticResource CardDescText}"
+                                                       Margin="0,4,0,0" MaxWidth="420" HorizontalAlignment="Left"/>
                                         </StackPanel>
-                                    </Border>
-
-                                    <Border Style="{StaticResource Card}">
-                                        <StackPanel>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource ArrowDown}" Stroke="#7FA8DF"
-                                                      StrokeThickness="1.4" Width="13" Height="13" Stretch="Uniform"
-                                                      Margin="0,0,7,0" VerticalAlignment="Center"/>
-                                                <TextBlock x:Name="PositionCardTitle" Style="{StaticResource CardTitleText}"/>
-                                            </StackPanel>
-                                            <TextBlock x:Name="PositionHintText" Style="{StaticResource CardDescText}"
-                                                       Margin="0,4,0,0" MaxWidth="400" HorizontalAlignment="Left"/>
-                                            <Grid Margin="0,10,0,0">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <RadioButton x:Name="PosTopRadio" Style="{StaticResource SelectableCardRadio}"
-                                                             GroupName="PositionGroup" Margin="0,0,6,0"
-                                                             Checked="AppearanceControl_Changed">
-                                                    <StackPanel>
-                                                        <Border Background="#090B0F" BorderBrush="#1F2530" BorderThickness="1"
-                                                                CornerRadius="8" Height="64">
-                                                            <Grid>
-                                                                <Border Width="76" Height="12" CornerRadius="6"
-                                                                        Background="#E7E1D3" HorizontalAlignment="Center"
-                                                                        VerticalAlignment="Top" Margin="0,10,0,0"/>
-                                                            </Grid>
-                                                        </Border>
-                                                        <TextBlock x:Name="PosTopLabel" FontSize="11" FontWeight="SemiBold"
-                                                                   HorizontalAlignment="Center" Margin="0,8,0,0"/>
-                                                    </StackPanel>
-                                                </RadioButton>
-                                                <RadioButton x:Name="PosBottomRadio" Grid.Column="1"
-                                                             Style="{StaticResource SelectableCardRadio}"
-                                                             GroupName="PositionGroup" Margin="6,0,0,0"
-                                                             Checked="AppearanceControl_Changed">
-                                                    <StackPanel>
-                                                        <Border Background="#090B0F" BorderBrush="#1F2530" BorderThickness="1"
-                                                                CornerRadius="8" Height="64">
-                                                            <Grid>
-                                                                <Border Width="76" Height="12" CornerRadius="6"
-                                                                        Background="#E7E1D3" HorizontalAlignment="Center"
-                                                                        VerticalAlignment="Bottom" Margin="0,0,0,10"/>
-                                                            </Grid>
-                                                        </Border>
-                                                        <TextBlock x:Name="PosBottomLabel" FontSize="11" FontWeight="SemiBold"
-                                                                   HorizontalAlignment="Center" Margin="0,8,0,0"/>
-                                                    </StackPanel>
-                                                </RadioButton>
-                                            </Grid>
-                                        </StackPanel>
-                                    </Border>
-                                </StackPanel>
-
-                                <StackPanel Grid.Column="1">
-                                    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-                                        <StackPanel>
-                                            <TextBlock x:Name="ThemeCardTitle" Style="{StaticResource CardTitleText}"/>
-                                            <TextBlock x:Name="ThemeHintText" Style="{StaticResource CardDescText}"
-                                                       Margin="0,4,0,10" HorizontalAlignment="Left"/>
-                                            <RadioButton x:Name="ThemeInkRadio" Style="{StaticResource SelectableCardRadio}"
-                                                         GroupName="ThemeGroup" Margin="0,0,0,8"
-                                                         Checked="AppearanceControl_Changed">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <Border Width="32" Height="32" CornerRadius="9" Background="#050608"
-                                                            BorderBrush="#2B3240" BorderThickness="1" Margin="0,0,11,0"/>
-                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                        <TextBlock x:Name="ThemeInkLabel" FontSize="12" FontWeight="SemiBold"/>
-                                                        <TextBlock x:Name="ThemeInkDescText" FontSize="10"
-                                                                   Foreground="{StaticResource BrushTextTertiary}"
-                                                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </RadioButton>
-                                            <RadioButton x:Name="ThemeGraphiteRadio" Style="{StaticResource SelectableCardRadio}"
-                                                         GroupName="ThemeGroup" Checked="AppearanceControl_Changed">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="Auto"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <Border Width="32" Height="32" CornerRadius="9" Margin="0,0,11,0"
-                                                            BorderBrush="#3A4250" BorderThickness="1">
-                                                        <Border.Background>
-                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                                <GradientStop Color="#3A414D" Offset="0"/>
-                                                                <GradientStop Color="#20252E" Offset="1"/>
-                                                            </LinearGradientBrush>
-                                                        </Border.Background>
-                                                    </Border>
-                                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                                        <TextBlock x:Name="ThemeGraphiteLabel" FontSize="12" FontWeight="SemiBold"/>
-                                                        <TextBlock x:Name="ThemeGraphiteDescText" FontSize="10"
-                                                                   Foreground="{StaticResource BrushTextTertiary}"
-                                                                   TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </RadioButton>
-                                        </StackPanel>
-                                    </Border>
-
-                                    <Border Style="{StaticResource Card}" Padding="15">
-                                        <StackPanel>
-                                            <Grid>
-                                                <TextBlock x:Name="PreviewCardTitle" Style="{StaticResource CardTitleText}"
-                                                           FontSize="12.5"/>
-                                                <TextBlock x:Name="PreviewMetaText" Style="{StaticResource CaptionText}"
-                                                           HorizontalAlignment="Right"/>
-                                            </Grid>
-                                            <Border Background="#07090C" BorderBrush="#1F2530" BorderThickness="1"
-                                                    CornerRadius="12" Height="150" Margin="0,10,0,0" ClipToBounds="True">
-                                                <Grid>
-                                                    <Border>
-                                                        <Border.Background>
-                                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                                <GradientStop Color="#16233A" Offset="0"/>
-                                                                <GradientStop Color="#10141D" Offset="0.6"/>
-                                                                <GradientStop Color="#090B10" Offset="1"/>
-                                                            </LinearGradientBrush>
-                                                        </Border.Background>
-                                                    </Border>
-                                                    <Ellipse Width="180" Height="100" Fill="#294A78" Opacity="0.18"
-                                                             HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                                                             Margin="0,0,-40,-30"/>
-                                                    <Border x:Name="PreviewPill" HorizontalAlignment="Center"
-                                                            VerticalAlignment="Top" Margin="0,12,0,0"
-                                                            Background="#08090B" BorderBrush="#333A46" BorderThickness="1"
-                                                            CornerRadius="14" Padding="9,6">
+                                        <Border Grid.Column="1" Style="{StaticResource SegmentedGroup}" VerticalAlignment="Center">
+                                            <Grid x:Name="AppearanceSegmentHost">
+                                                <!-- Sliding pill: animates smoothly between System / Light / Dark -->
+                                                <Border x:Name="AppearanceSegmentPill" CornerRadius="7"
+                                                        Background="{DynamicResource SettingsSegmentPillBg}"
+                                                        BorderBrush="{DynamicResource SettingsSegmentPillBorder}"
+                                                        BorderThickness="1"
+                                                        HorizontalAlignment="Left" VerticalAlignment="Top"
+                                                        Width="0" Height="0" Visibility="Collapsed"
+                                                        IsHitTestVisible="False">
+                                                    <Border.RenderTransform>
+                                                        <TranslateTransform x:Name="AppearanceSegmentPillTransform"/>
+                                                    </Border.RenderTransform>
+                                                </Border>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <RadioButton x:Name="AppearanceSystemSegment" Style="{StaticResource SegmentedItem}"
+                                                                 GroupName="SettingsAppearanceGroup" Padding="11,6"
+                                                                 Checked="AppearanceThemeSegment_Checked">
                                                         <StackPanel Orientation="Horizontal">
-                                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
-                                                                        Margin="0,0,7,0">
-                                                                <Border Width="2.5" Height="7" CornerRadius="1.5"
-                                                                        Background="#F1EAD9" Margin="0,0,2,0"/>
-                                                                <Border Width="2.5" Height="12" CornerRadius="1.5"
-                                                                        Background="#F1EAD9" Margin="0,0,2,0"/>
-                                                                <Border Width="2.5" Height="9" CornerRadius="1.5"
-                                                                        Background="#F1EAD9"/>
-                                                            </StackPanel>
-                                                            <TextBlock Text="Open Island" FontSize="9.5" FontWeight="SemiBold"
-                                                                       VerticalAlignment="Center"/>
-                                                            <Ellipse Width="4.5" Height="4.5" Fill="#6FB982"
-                                                                     Margin="9,0,5,0" VerticalAlignment="Center"/>
-                                                            <TextBlock x:Name="PreviewStatusText" FontSize="8.5"
-                                                                       Foreground="{StaticResource BrushTextSecondary}"
-                                                                       VerticalAlignment="Center"/>
-                                                            <Path Data="{StaticResource ChevronRight}" Stroke="#7D889B"
-                                                                  StrokeThickness="1.2" Width="4" Height="7"
-                                                                  Stretch="Uniform" VerticalAlignment="Center"
-                                                                  Margin="9,0,0,0"/>
+                                                            <Path Data="{StaticResource IconThemeContrast}" Width="12" Height="12"
+                                                                  Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
+                                                            <TextBlock x:Name="AppearanceSystemLabel" VerticalAlignment="Center"
+                                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
                                                         </StackPanel>
-                                                    </Border>
+                                                    </RadioButton>
+                                                    <RadioButton x:Name="AppearanceLightSegment" Style="{StaticResource SegmentedItem}"
+                                                                 GroupName="SettingsAppearanceGroup" Padding="11,6" Margin="2,0,0,0"
+                                                                 Checked="AppearanceThemeSegment_Checked">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Path Data="{StaticResource IconThemeSun}" Width="12" Height="12"
+                                                                  Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
+                                                            <TextBlock x:Name="AppearanceLightLabel" VerticalAlignment="Center"
+                                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
+                                                    <RadioButton x:Name="AppearanceDarkSegment" Style="{StaticResource SegmentedItem}"
+                                                                 GroupName="SettingsAppearanceGroup" Padding="11,6" Margin="2,0,0,0"
+                                                                 Checked="AppearanceThemeSegment_Checked">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Path Data="{StaticResource IconThemeMoon}" Width="11.5" Height="11.5"
+                                                                  Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                                                  Fill="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
+                                                            <TextBlock x:Name="AppearanceDarkLabel" VerticalAlignment="Center"
+                                                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type RadioButton}}}"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </Grid>
+                                </Border>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="320"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                                        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource IconDesktop}" Fill="{DynamicResource SettingsIconAccent}" Width="14"
+                                                          Height="14" Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="MonitorCardTitle" Style="{StaticResource CardTitleText}"/>
+                                                </StackPanel>
+                                                <TextBlock x:Name="MonitorCardDesc" Style="{StaticResource CardDescText}"
+                                                           Margin="0,4,0,10" MaxWidth="400" HorizontalAlignment="Left"/>
+                                                <ComboBox x:Name="MonitorCombo" Style="{StaticResource DarkComboBox}"
+                                                          HorizontalAlignment="Stretch"/>
+                                                <TextBlock x:Name="MonitorHintText" Style="{StaticResource CaptionText}"
+                                                           Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource Card}">
+                                            <StackPanel>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Data="{StaticResource ArrowDown}" Stroke="{DynamicResource SettingsIconAccent}"
+                                                          StrokeThickness="1.4" Width="13" Height="13" Stretch="Uniform"
+                                                          Margin="0,0,7,0" VerticalAlignment="Center"/>
+                                                    <TextBlock x:Name="PositionCardTitle" Style="{StaticResource CardTitleText}"/>
+                                                </StackPanel>
+                                                <TextBlock x:Name="PositionHintText" Style="{StaticResource CardDescText}"
+                                                           Margin="0,4,0,0" MaxWidth="400" HorizontalAlignment="Left"/>
+                                                <Grid Margin="0,10,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton x:Name="PosTopRadio" Style="{StaticResource SelectableCardRadio}"
+                                                                 GroupName="PositionGroup" Margin="0,0,6,0"
+                                                                 Checked="AppearanceControl_Changed">
+                                                        <StackPanel>
+                                                            <Border Background="#12161F" BorderBrush="#262E3D" BorderThickness="1"
+                                                                    CornerRadius="8" Height="64">
+                                                                <Grid>
+                                                                    <Border Width="76" Height="12" CornerRadius="6"
+                                                                            Background="#E7E1D3" HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Top" Margin="0,10,0,0"/>
+                                                                </Grid>
+                                                            </Border>
+                                                            <TextBlock x:Name="PosTopLabel" FontSize="11" FontWeight="SemiBold"
+                                                                       HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
+                                                    <RadioButton x:Name="PosBottomRadio" Grid.Column="1"
+                                                                 Style="{StaticResource SelectableCardRadio}"
+                                                                 GroupName="PositionGroup" Margin="6,0,0,0"
+                                                                 Checked="AppearanceControl_Changed">
+                                                        <StackPanel>
+                                                            <Border Background="#12161F" BorderBrush="#262E3D" BorderThickness="1"
+                                                                    CornerRadius="8" Height="64">
+                                                                <Grid>
+                                                                    <Border Width="76" Height="12" CornerRadius="6"
+                                                                            Background="#E7E1D3" HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Bottom" Margin="0,0,0,10"/>
+                                                                </Grid>
+                                                            </Border>
+                                                            <TextBlock x:Name="PosBottomLabel" FontSize="11" FontWeight="SemiBold"
+                                                                       HorizontalAlignment="Center" Margin="0,8,0,0"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
                                                 </Grid>
-                                            </Border>
-                                            <TextBlock x:Name="PreviewHintText" Style="{StaticResource CardDescText}"
-                                                       Margin="0,8,0,0" HorizontalAlignment="Left"/>
-                                        </StackPanel>
-                                    </Border>
-                                </StackPanel>
-                            </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="1">
+                                        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                                            <StackPanel>
+                                                <TextBlock x:Name="ThemeCardTitle" Style="{StaticResource CardTitleText}"/>
+                                                <TextBlock x:Name="ThemeHintText" Style="{StaticResource CardDescText}"
+                                                           Margin="0,4,0,10" HorizontalAlignment="Left"/>
+                                                <RadioButton x:Name="ThemeInkRadio" Style="{StaticResource SelectableCardRadio}"
+                                                             GroupName="ThemeGroup" Margin="0,0,0,8"
+                                                             Checked="AppearanceControl_Changed">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="32" Height="32" CornerRadius="9" Background="#050608"
+                                                                BorderBrush="#2B3240" BorderThickness="1" Margin="0,0,11,0"/>
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                            <TextBlock x:Name="ThemeInkLabel" FontSize="12" FontWeight="SemiBold"/>
+                                                            <TextBlock x:Name="ThemeInkDescText" FontSize="10"
+                                                                       Foreground="{DynamicResource SettingsTextTertiary}"
+                                                                       TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </RadioButton>
+                                                <RadioButton x:Name="ThemeGraphiteRadio" Style="{StaticResource SelectableCardRadio}"
+                                                             GroupName="ThemeGroup" Checked="AppearanceControl_Changed">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="32" Height="32" CornerRadius="9" Margin="0,0,11,0"
+                                                                BorderBrush="#3A4250" BorderThickness="1">
+                                                            <Border.Background>
+                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                                    <GradientStop Color="#3A414D" Offset="0"/>
+                                                                    <GradientStop Color="#20252E" Offset="1"/>
+                                                                </LinearGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                            <TextBlock x:Name="ThemeGraphiteLabel" FontSize="12" FontWeight="SemiBold"/>
+                                                            <TextBlock x:Name="ThemeGraphiteDescText" FontSize="10"
+                                                                       Foreground="{DynamicResource SettingsTextTertiary}"
+                                                                       TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </RadioButton>
+                                            </StackPanel>
+                                        </Border>
+
+                                        <Border Style="{StaticResource Card}" Padding="15">
+                                            <StackPanel>
+                                                <Grid>
+                                                    <TextBlock x:Name="PreviewCardTitle" Style="{StaticResource CardTitleText}"
+                                                               FontSize="12.5"/>
+                                                    <TextBlock x:Name="PreviewMetaText" Style="{StaticResource CaptionText}"
+                                                               HorizontalAlignment="Right"/>
+                                                </Grid>
+                                                <Border Background="#07090C" BorderBrush="#1F2530" BorderThickness="1"
+                                                        CornerRadius="12" Height="150" Margin="0,10,0,0" ClipToBounds="True">
+                                                    <Grid>
+                                                        <Border>
+                                                            <Border.Background>
+                                                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                                    <GradientStop Color="#16233A" Offset="0"/>
+                                                                    <GradientStop Color="#10141D" Offset="0.6"/>
+                                                                    <GradientStop Color="#090B10" Offset="1"/>
+                                                                </LinearGradientBrush>
+                                                            </Border.Background>
+                                                        </Border>
+                                                        <Ellipse Width="180" Height="100" Fill="#294A78" Opacity="0.18"
+                                                                 HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                                 Margin="0,0,-40,-30"/>
+                                                        <Border x:Name="PreviewPill" HorizontalAlignment="Center"
+                                                                VerticalAlignment="Top" Margin="0,12,0,0"
+                                                                Background="#08090B" BorderBrush="#333A46" BorderThickness="1"
+                                                                CornerRadius="14" Padding="9,6">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                                                                            Margin="0,0,7,0">
+                                                                    <Border Width="2.5" Height="7" CornerRadius="1.5"
+                                                                            Background="#F1EAD9" Margin="0,0,2,0"/>
+                                                                    <Border Width="2.5" Height="12" CornerRadius="1.5"
+                                                                            Background="#F1EAD9" Margin="0,0,2,0"/>
+                                                                    <Border Width="2.5" Height="9" CornerRadius="1.5"
+                                                                            Background="#F1EAD9"/>
+                                                                </StackPanel>
+                                                                <TextBlock Text="Open Island" FontSize="9.5" FontWeight="SemiBold"
+                                                                           Foreground="#F2F4F8" VerticalAlignment="Center"/>
+                                                                <Ellipse Width="4.5" Height="4.5" Fill="#6FB982"
+                                                                         Margin="9,0,5,0" VerticalAlignment="Center"/>
+                                                                <TextBlock x:Name="PreviewStatusText" FontSize="8.5"
+                                                                           Foreground="#A6B0C0"
+                                                                           VerticalAlignment="Center"/>
+                                                                <Path Data="{StaticResource ChevronRight}" Stroke="#7D889B"
+                                                                      StrokeThickness="1.2" Width="4" Height="7"
+                                                                      Stretch="Uniform" VerticalAlignment="Center"
+                                                                      Margin="9,0,0,0"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </Grid>
+                                                </Border>
+                                                <TextBlock x:Name="PreviewHintText" Style="{StaticResource CardDescText}"
+                                                           Margin="0,8,0,0" HorizontalAlignment="Left"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
                         </ScrollViewer>
 
                         <!-- ============ PAGE: General ============ -->
@@ -715,7 +783,7 @@
                                 <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal">
-                                            <Path Data="{StaticResource IconGear}" Fill="#7FA8DF" Width="14" Height="14"
+                                            <Path Data="{StaticResource IconGear}" Fill="{DynamicResource SettingsIconAccent}" Width="14" Height="14"
                                                   Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                             <TextBlock x:Name="SystemTitle" Style="{StaticResource CardTitleText}"/>
                                         </StackPanel>
@@ -735,7 +803,9 @@
                                                 <Grid x:Name="LanguageSegmentHost">
                                                     <!-- Sliding pill: animates between 中文 / English when the selection changes. -->
                                                     <Border x:Name="LanguageSegmentPill" CornerRadius="7"
-                                                            Background="#243044" BorderBrush="#35507A" BorderThickness="1"
+                                                            Background="{DynamicResource SettingsSegmentPillBg}"
+                                                            BorderBrush="{DynamicResource SettingsSegmentPillBorder}"
+                                                            BorderThickness="1"
                                                             HorizontalAlignment="Left" VerticalAlignment="Top"
                                                             Width="0" Height="0" Visibility="Collapsed"
                                                             IsHitTestVisible="False">
@@ -803,7 +873,7 @@
                                 <Border Style="{StaticResource Card}" Margin="0,0,0,12">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal">
-                                            <Path Data="{StaticResource IconSound}" Fill="#7FA8DF" Width="14" Height="14"
+                                            <Path Data="{StaticResource IconSound}" Fill="{DynamicResource SettingsIconAccent}" Width="14" Height="14"
                                                   Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                             <TextBlock x:Name="NotificationTitle" Style="{StaticResource CardTitleText}"/>
                                         </StackPanel>
@@ -846,7 +916,7 @@
                                                         Click="PreviewSoundButton_Click">
                                                     <StackPanel Orientation="Horizontal">
                                                         <Path Data="{StaticResource IconPlay}" Width="8" Height="9"
-                                                              Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                              Stretch="Uniform" Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,6,0"
                                                               VerticalAlignment="Center"/>
                                                         <TextBlock x:Name="PreviewSoundText" FontSize="11"/>
                                                     </StackPanel>
@@ -874,7 +944,7 @@
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel>
                                         <StackPanel Orientation="Horizontal">
-                                            <Path Data="{StaticResource IconSparkle}" Fill="#7FA8DF" Width="14" Height="14"
+                                            <Path Data="{StaticResource IconSparkle}" Fill="{DynamicResource SettingsIconAccent}" Width="14" Height="14"
                                                   Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                             <TextBlock x:Name="BehaviorTitle" Style="{StaticResource CardTitleText}"/>
                                         </StackPanel>
@@ -926,7 +996,7 @@
                                                 <TextBlock x:Name="AutoHideDelayLabel" Style="{StaticResource FieldLabelText}"/>
                                                 <TextBlock x:Name="AutoHideDelayValue" HorizontalAlignment="Right"
                                                            FontFamily="{StaticResource FontMono}" FontSize="10.5"
-                                                           Foreground="{StaticResource SettingsAccent}" VerticalAlignment="Center"/>
+                                                           Foreground="{DynamicResource SettingsAccent}" VerticalAlignment="Center"/>
                                             </Grid>
                                             <Slider x:Name="AutoHideDelaySlider" Style="{StaticResource ModernSlider}"
                                                     Minimum="5" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True"
@@ -941,7 +1011,7 @@
                                                 <TextBlock x:Name="CompletionDurationLabel" Style="{StaticResource FieldLabelText}"/>
                                                 <TextBlock x:Name="CompletionDurationValue" HorizontalAlignment="Right"
                                                            FontFamily="{StaticResource FontMono}" FontSize="10.5"
-                                                           Foreground="{StaticResource SettingsAccent}" VerticalAlignment="Center"/>
+                                                           Foreground="{DynamicResource SettingsAccent}" VerticalAlignment="Center"/>
                                             </Grid>
                                             <Slider x:Name="CompletionDurationSlider" Style="{StaticResource ModernSlider}"
                                                     Minimum="3" Maximum="30" TickFrequency="1" IsSnapToTickEnabled="True"
@@ -956,7 +1026,7 @@
                                                 <TextBlock x:Name="PollIntervalLabel" Style="{StaticResource FieldLabelText}"/>
                                                 <TextBlock x:Name="PollIntervalValue" HorizontalAlignment="Right"
                                                            FontFamily="{StaticResource FontMono}" FontSize="10.5"
-                                                           Foreground="{StaticResource SettingsAccent}" VerticalAlignment="Center"/>
+                                                           Foreground="{DynamicResource SettingsAccent}" VerticalAlignment="Center"/>
                                             </Grid>
                                             <Slider x:Name="PollSlider" Style="{StaticResource ModernSlider}"
                                                     Minimum="1000" Maximum="15000" TickFrequency="500"
@@ -998,15 +1068,17 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="78" Height="78" CornerRadius="22" Background="#151A22"
-                                                BorderBrush="#2A3140" BorderThickness="1" Margin="0,0,18,0">
+                                        <Border Width="78" Height="78" CornerRadius="22"
+                                                Background="{DynamicResource SettingsBrandMarkBg}"
+                                                BorderBrush="{DynamicResource SettingsBrandMarkBorder}"
+                                                BorderThickness="1" Margin="0,0,18,0">
                                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
                                                         VerticalAlignment="Center">
-                                                <Border Width="6" Height="22" CornerRadius="3" Background="{StaticResource BrushPaper}"
+                                                <Border Width="6" Height="22" CornerRadius="3" Background="{DynamicResource SettingsBrandMarkBars}"
                                                         Margin="0,0,4,0" VerticalAlignment="Center"/>
-                                                <Border Width="6" Height="40" CornerRadius="3" Background="{StaticResource BrushPaper}"
+                                                <Border Width="6" Height="40" CornerRadius="3" Background="{DynamicResource SettingsBrandMarkBars}"
                                                         Margin="0,0,4,0" VerticalAlignment="Center"/>
-                                                <Border Width="6" Height="30" CornerRadius="3" Background="{StaticResource BrushPaper}"
+                                                <Border Width="6" Height="30" CornerRadius="3" Background="{DynamicResource SettingsBrandMarkBars}"
                                                         VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </Border>
@@ -1014,17 +1086,18 @@
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="Open Island" FontFamily="{StaticResource FontDisplay}"
                                                            FontSize="21" FontWeight="SemiBold"/>
-                                                <Border Background="#17233A" BorderBrush="#2C466B" BorderThickness="1"
-                                                        CornerRadius="7" Padding="7,2" Margin="10,0,0,0"
+                                                <Border Background="{DynamicResource SettingsAccentTintBg}"
+                                                        BorderBrush="{DynamicResource SettingsAccentTintBorder}"
+                                                        BorderThickness="1" CornerRadius="7" Padding="7,2" Margin="10,0,0,0"
                                                         VerticalAlignment="Center">
                                                     <TextBlock x:Name="AboutVersionText" FontFamily="{StaticResource FontMono}"
-                                                               FontSize="10" Foreground="#8FB8F0"/>
+                                                               FontSize="10" Foreground="{DynamicResource SettingsAccentText}"/>
                                                 </Border>
                                             </StackPanel>
                                             <TextBlock x:Name="AboutTaglineText" Style="{StaticResource PageSubtitleText}"
                                                        FontSize="12.5" Margin="0,5,0,0" HorizontalAlignment="Left"/>
                                             <TextBlock x:Name="AboutTechText" Style="{StaticResource MonoText}"
-                                                       Foreground="{StaticResource BrushTextTertiary}" Margin="0,5,0,0"/>
+                                                       Foreground="{DynamicResource SettingsTextTertiary}" Margin="0,5,0,0"/>
                                         </StackPanel>
                                     </Grid>
                                 </Border>
@@ -1038,7 +1111,7 @@
                                         </Grid.ColumnDefinitions>
                                         <StackPanel VerticalAlignment="Center" Margin="0,0,14,0">
                                             <StackPanel Orientation="Horizontal">
-                                                <Path Data="{StaticResource IconRefresh}" Fill="#7FA8DF" Width="14" Height="14"
+                                                <Path Data="{StaticResource IconRefresh}" Fill="{DynamicResource SettingsIconAccent}" Width="14" Height="14"
                                                       Stretch="Uniform" Margin="0,0,7,0" VerticalAlignment="Center"/>
                                                 <TextBlock x:Name="AboutUpdateTitle" Style="{StaticResource CardTitleText}"/>
                                                 <Border x:Name="AboutUpdateStatusChip" Style="{StaticResource StatusChip}"
@@ -1069,7 +1142,7 @@
                                                     Click="CheckUpdatesButton_Click">
                                                 <StackPanel Orientation="Horizontal">
                                                     <Path Data="{StaticResource IconRefresh}" Width="12" Height="12"
-                                                          Stretch="Uniform" Fill="#9AA6B8" Margin="0,0,6,0"
+                                                          Stretch="Uniform" Fill="{DynamicResource SettingsIconMuted}" Margin="0,0,6,0"
                                                           VerticalAlignment="Center"/>
                                                     <TextBlock x:Name="CheckUpdatesButtonText" FontSize="11.5"/>
                                                 </StackPanel>
@@ -1151,7 +1224,7 @@
                                             <Border Style="{StaticResource FooterChip}" HorizontalAlignment="Left"
                                                     Margin="0,7,0,0" Padding="9,5">
                                                 <TextBlock x:Name="HotkeyValueText" FontFamily="{StaticResource FontMono}"
-                                                           FontSize="10.5" Foreground="{StaticResource BrushTextSecondary}"/>
+                                                           FontSize="10.5" Foreground="{DynamicResource SettingsTextSecondary}"/>
                                             </Border>
                                         </StackPanel>
                                     </Border>
@@ -1174,7 +1247,7 @@
                                             <TextBlock x:Name="DataDirPathText" Style="{StaticResource MonoText}"
                                                        FontSize="10.5" Margin="0,7,0,0"
                                                        TextTrimming="CharacterEllipsis" ToolTip=""/>
-                                            <TextBlock x:Name="CopiedFeedbackText" FontSize="10" Foreground="#6FB982"
+                                            <TextBlock x:Name="CopiedFeedbackText" FontSize="10" Foreground="{DynamicResource SettingsGreen}"
                                                        Visibility="Collapsed" Margin="0,4,0,0"/>
                                         </StackPanel>
                                     </Border>
@@ -1186,9 +1259,11 @@
                                             <ColumnDefinition Width="Auto"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
-                                        <Border Width="38" Height="38" CornerRadius="10" Background="#12231C"
-                                                BorderBrush="#254434" BorderThickness="1" Margin="0,0,13,0">
-                                            <Path Data="{StaticResource IconShield}" Fill="#6FB982" Width="17" Height="17"
+                                        <Border Width="38" Height="38" CornerRadius="10"
+                                                Background="{DynamicResource SettingsSuccessBg}"
+                                                BorderBrush="{DynamicResource SettingsSuccessBorder}"
+                                                BorderThickness="1" Margin="0,0,13,0">
+                                            <Path Data="{StaticResource IconShield}" Fill="{DynamicResource SettingsGreen}" Width="17" Height="17"
                                                   Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -1203,23 +1278,24 @@
                     </Grid>
 
                     <!-- ============ Bottom action bar ============ -->
-                    <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="#1A1F29" Padding="28,0">
+                    <Border Grid.Row="2" BorderThickness="0,1,0,0" BorderBrush="{DynamicResource SettingsDividerBrush}" Padding="28,0">
                         <Grid Height="64">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Ellipse Width="5" Height="5" Fill="#6EA7FF" Opacity="0.9" Margin="0,0,8,0"/>
+                                <Ellipse Width="5" Height="5" Fill="{DynamicResource SettingsAccent}" Opacity="0.9" Margin="0,0,8,0"/>
                                 <TextBlock x:Name="ApplyHintText" Style="{StaticResource CaptionText}"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                                 <Border x:Name="SaveToast" Visibility="Collapsed" Opacity="0"
-                                        Background="#13241C" BorderBrush="#2C5843" BorderThickness="1"
+                                        Background="{DynamicResource SettingsSuccessBg}"
+                                        BorderBrush="{DynamicResource SettingsSuccessBorder}" BorderThickness="1"
                                         CornerRadius="9" Padding="10,6" Margin="0,0,12,0">
                                     <Border.RenderTransform>
                                         <TranslateTransform/>
                                     </Border.RenderTransform>
                                     <StackPanel Orientation="Horizontal">
                                         <Path x:Name="SaveToastIcon" Data="{StaticResource IconCheck}" Width="11" Height="10"
-                                              Stretch="Uniform" Fill="#6FB982" VerticalAlignment="Center"/>
-                                        <TextBlock x:Name="SaveToastText" FontSize="11" Foreground="#8ED7A5"
+                                              Stretch="Uniform" Fill="{DynamicResource SettingsGreen}" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="SaveToastText" FontSize="11" Foreground="{DynamicResource SettingsSuccessText}"
                                                    Margin="6,0,0,0" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Border>
