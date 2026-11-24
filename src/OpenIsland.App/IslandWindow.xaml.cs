@@ -10,6 +10,7 @@ using OpenIsland.App.Controls;
 using OpenIsland.Core.Localization;
 using OpenIsland.Core.Models;
 using OpenIsland.Core.Platform;
+using OpenIsland.Core.State;
 using Forms = System.Windows.Forms;
 using Path = System.Windows.Shapes.Path;
 
@@ -44,7 +45,7 @@ public partial class IslandWindow : Window
     private readonly App _app;
     private readonly DispatcherTimer _collapseTimer;
     private bool _isExpanded;
-    private bool _pinnedOpen;
+    private readonly IslandPinState _pinState = new();
     private bool _suppressHoverExpandUntilLeave;
     private bool _surfaceSizeAnimating;
     private double _compactSurfaceWidth;
@@ -75,7 +76,7 @@ public partial class IslandWindow : Window
         _collapseTimer.Tick += (_, _) =>
         {
             _collapseTimer.Stop();
-            if (!_pinnedOpen && !IsMouseOver) SetExpanded(false, animate: true);
+            if (!_pinState.IsPinned && !IsMouseOver) SetExpanded(false, animate: true);
         };
 
         _autoHideTimer = new DispatcherTimer();
@@ -99,26 +100,26 @@ public partial class IslandWindow : Window
 
         _app.Reducer.StateChanged += () => Dispatcher.Invoke(() =>
         {
-            RenderState();
             OnSessionsChanged();
+            RenderState();
         });
         _app.Reducer.ApprovalRequested += _ => Dispatcher.Invoke(() =>
         {
             RevealIsland();
-            if (_app.Settings.AutoExpandOnApproval) ExpandFromNotification(pin: true);
+            if (_app.Settings.AutoExpandOnApproval) ExpandFromNotification(pinForAttention: true);
             RenderState();
         });
         _app.Reducer.QuestionRequested += _ => Dispatcher.Invoke(() =>
         {
             RevealIsland();
-            if (_app.Settings.AutoExpandOnApproval) ExpandFromNotification(pin: true);
+            if (_app.Settings.AutoExpandOnApproval) ExpandFromNotification(pinForAttention: true);
             RenderState();
         });
         _app.Reducer.TurnCompleted += card => Dispatcher.Invoke(() =>
         {
             if (card.IsInterrupt) return;
             // Expanding a hidden island would animate off-screen; keep it tucked away.
-            if (_app.Settings.AutoExpandOnCompletion && !_isAutoHidden) ExpandFromNotification(pin: false);
+            if (_app.Settings.AutoExpandOnCompletion && !_isAutoHidden) ExpandFromNotification(pinForAttention: false);
             var autoDismiss = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(Math.Clamp(_app.Settings.CompletionCardSeconds, 3, 30))
@@ -127,7 +128,7 @@ public partial class IslandWindow : Window
             {
                 autoDismiss.Stop();
                 _app.Reducer.DismissCompletionCard(card.Id);
-                if (!_pinnedOpen && !IsMouseOver) SetExpanded(false, animate: true);
+                if (!_pinState.IsPinned && !IsMouseOver) SetExpanded(false, animate: true);
             };
             autoDismiss.Start();
             RenderState();
@@ -226,7 +227,7 @@ public partial class IslandWindow : Window
     {
         if (!IsVisible) Show();
         RevealIsland(animate: false);
-        _pinnedOpen = true;
+        _pinState.PinManually();
         _autoHideTimer.Stop();
         SetExpanded(true, animate: true);
     }
@@ -334,7 +335,7 @@ public partial class IslandWindow : Window
     private void ScheduleAutoHide()
     {
         _autoHideTimer.Stop();
-        if (!_autoHideEnabled || _isAutoHidden || _isExpanded || _pinnedOpen || !IsVisible) return;
+        if (!_autoHideEnabled || _isAutoHidden || _isExpanded || _pinState.IsPinned || !IsVisible) return;
         if (HasPendingAttention()) return;
 
         _autoHideTimer.Interval = TimeSpan.FromSeconds(_autoHideDelaySeconds);
@@ -358,16 +359,37 @@ public partial class IslandWindow : Window
 
     private void OnSessionsChanged()
     {
+        bool hasPending = HasPendingAttention();
         // Never stay tucked away while the user is asked to approve something.
-        if (_isAutoHidden && HasPendingAttention())
+        if (_isAutoHidden && hasPending)
         {
             RevealIsland();
+            return;
+        }
+
+        if (!hasPending)
+        {
+            if (_pinState.ReleaseAutoPinIfNoAttention(hasPending))
+            {
+                UpdateHeaderPinAndChevronState();
+                bool hasActiveCompletion = _app.Reducer.GetRecentCompletions().Any(c => !c.IsInterrupt);
+                if (_isExpanded && !IsMouseOver && !hasActiveCompletion)
+                {
+                    _collapseTimer.Stop();
+                    SetExpanded(false, animate: true);
+                }
+            }
+
+            if (!_isExpanded && !_pinState.IsPinned)
+            {
+                ScheduleAutoHide();
+            }
         }
     }
 
     private void TryAutoHide()
     {
-        if (!_autoHideEnabled || _isAutoHidden || _isExpanded || _pinnedOpen || !IsVisible) return;
+        if (!_autoHideEnabled || _isAutoHidden || _isExpanded || _pinState.IsPinned || !IsVisible) return;
         if (IsMouseOver) { ScheduleAutoHide(); return; }
         if (HasPendingAttention()) return;
 
@@ -456,9 +478,9 @@ public partial class IslandWindow : Window
     // Expand / collapse motion
     // =====================================================================
 
-    private void ExpandFromNotification(bool pin)
+    private void ExpandFromNotification(bool pinForAttention)
     {
-        if (pin) _pinnedOpen = true;
+        if (pinForAttention) _pinState.OnAttentionNotification();
         if (!IsVisible) Show();
 
         // Defer until the current dispatcher operation (and any in-flight layout) completes;
@@ -466,6 +488,7 @@ public partial class IslandWindow : Window
         // a freshly launched instance.
         Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
         {
+            if (pinForAttention && !HasPendingAttention() && !_pinState.IsPinned) return;
             try
             {
                 SetExpanded(true, animate: true);
@@ -702,13 +725,13 @@ public partial class IslandWindow : Window
     {
         _suppressHoverExpandUntilLeave = false;
         AnimateHover(1.0);
-        if (!_pinnedOpen) _collapseTimer.Start();
+        if (!_pinState.IsPinned) _collapseTimer.Start();
     }
 
     private void PinToggleBadge_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        _pinnedOpen = !_pinnedOpen;
-        if (_pinnedOpen)
+        _pinState.ToggleManualPin();
+        if (_pinState.IsPinned)
         {
             _suppressHoverExpandUntilLeave = false;
             _collapseTimer.Stop();
@@ -723,14 +746,14 @@ public partial class IslandWindow : Window
         if (!_isExpanded)
         {
             _suppressHoverExpandUntilLeave = false;
-            _pinnedOpen = true;
+            _pinState.PinManually();
             SetExpanded(true, animate: true);
         }
         else
         {
             // Explicitly clicking the top-right arrow always unpins and collapses immediately,
             // even while the mouse is still hovering over the header.
-            _pinnedOpen = false;
+            _pinState.Unpin();
             _suppressHoverExpandUntilLeave = true;
             _collapseTimer.Stop();
             SetExpanded(false, animate: true);
@@ -744,12 +767,12 @@ public partial class IslandWindow : Window
         if (!_isExpanded)
         {
             _suppressHoverExpandUntilLeave = false;
-            _pinnedOpen = true;
+            _pinState.PinManually();
             SetExpanded(true, animate: true);
         }
-        else if (_pinnedOpen)
+        else if (_pinState.IsPinned)
         {
-            _pinnedOpen = false;
+            _pinState.Unpin();
             _suppressHoverExpandUntilLeave = true;
             _collapseTimer.Stop();
             SetExpanded(false, animate: true);
@@ -757,7 +780,7 @@ public partial class IslandWindow : Window
         else
         {
             // Hover-opened: clicking the header pins it open and lights up the pinned indicator.
-            _pinnedOpen = true;
+            _pinState.PinManually();
         }
         UpdateHeaderPinAndChevronState();
         e.Handled = true;
@@ -768,7 +791,7 @@ public partial class IslandWindow : Window
         if (PinToggleBadge is null || Chevron is null || ChevronBtn is null) return;
 
         PinToggleBadge.Visibility = _isExpanded ? Visibility.Visible : Visibility.Collapsed;
-        if (_pinnedOpen)
+        if (_pinState.IsPinned)
         {
             PinToggleBadge.Background = B("#286EA7FF");
             PinToggleBadge.BorderBrush = B("#786EA7FF");
@@ -797,7 +820,7 @@ public partial class IslandWindow : Window
     private void JumpAndCollapse(AgentSession session)
     {
         TerminalJump(session);
-        _pinnedOpen = false;
+        _pinState.Unpin();
         _suppressHoverExpandUntilLeave = true;
         _collapseTimer.Stop();
         if (_isExpanded) SetExpanded(false, animate: true);
@@ -1256,9 +1279,15 @@ public partial class IslandWindow : Window
 
     private void AfterApprovalResolved()
     {
-        if (!IsMouseOver)
+        if (_pinState.ReleaseAutoPinIfNoAttention(HasPendingAttention()))
         {
-            _pinnedOpen = false;
+            UpdateHeaderPinAndChevronState();
+            bool hasActiveCompletion = _app.Reducer.GetRecentCompletions().Any(c => !c.IsInterrupt);
+            if (_isExpanded && !IsMouseOver && !hasActiveCompletion)
+            {
+                _collapseTimer.Stop();
+                SetExpanded(false, animate: true);
+            }
         }
         RenderState();
     }

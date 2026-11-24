@@ -321,7 +321,16 @@ public partial class App : System.Windows.Application
         {
             try
             {
-                var discovered = Discovery.ScanRecentSessions();
+                var knownCwds = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var s in Reducer.GetActiveSessions())
+                {
+                    if (!string.IsNullOrWhiteSpace(s.Cwd))
+                    {
+                        knownCwds[s.SessionId] = s.Cwd;
+                    }
+                }
+
+                var discovered = Discovery.ScanRecentSessions(knownSessionCwds: knownCwds);
                 foreach (var s in discovered)
                 {
                     Reducer.UpsertDiscoveredSession(s);

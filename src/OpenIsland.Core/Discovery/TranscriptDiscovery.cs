@@ -18,8 +18,11 @@ namespace OpenIsland.Core.Discovery;
 public sealed class TranscriptDiscovery
 {
     private readonly Dictionary<string, long> _fileOffsets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AntigravityPolicyDetector _antigravityPolicy = new();
 
-    public List<AgentSession> ScanRecentSessions(TimeSpan? maxAge = null)
+    public List<AgentSession> ScanRecentSessions(
+        TimeSpan? maxAge = null,
+        IReadOnlyDictionary<string, string?>? knownSessionCwds = null)
     {
         var cutoff = DateTime.UtcNow - (maxAge ?? TimeSpan.FromHours(6));
         var results = new List<AgentSession>();
@@ -31,7 +34,7 @@ public sealed class TranscriptDiscovery
         var recentCodexThreadIds = ScanCodexThreadDatabase(cutoff, results);
         ScanCodexRollouts(cutoff, results, recentCodexThreadIds);
         ScanDeepSeekHarnessSessions(cutoff, results);
-        ScanAntigravitySessions(cutoff, results);
+        ScanAntigravitySessions(cutoff, results, knownSessionCwds);
 
         return results;
     }
@@ -750,7 +753,19 @@ public sealed class TranscriptDiscovery
         ("~/.gemini/antigravity-cli/brain", "Antigravity CLI", false)
     ];
 
-    private void ScanAntigravitySessions(DateTime cutoffUtc, List<AgentSession> results)
+    private static readonly HashSet<string> KnownNonQuestionAntigravityTools = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "run_command", "execute_command", "write_file", "edit_file", "read_file", "view_file",
+        "replace_file_content", "multi_replace_file_content", "search_web", "update_focus",
+        "update_steps", "manage_task", "schedule", "swarm", "invoke_subagent", "define_subagent",
+        "send_message", "manage_subagents", "run_workflow", "search_marketplace",
+        "exit_plan_mode", "notify_user"
+    };
+
+    private void ScanAntigravitySessions(
+        DateTime cutoffUtc,
+        List<AgentSession> results,
+        IReadOnlyDictionary<string, string?>? knownSessionCwds = null)
     {
         foreach (var (relBrainDir, surfaceName, isDesktop) in AntigravityRoots)
         {
@@ -772,6 +787,10 @@ public sealed class TranscriptDiscovery
                         var sessionId = Path.GetFileName(convDir);
                         if (string.IsNullOrWhiteSpace(sessionId)) continue;
 
+                        string? sessionCwd = null;
+                        knownSessionCwds?.TryGetValue(sessionId, out sessionCwd);
+                        var policy = _antigravityPolicy.ResolvePolicy(surfaceName, sessionCwd);
+
                         var headLines = ReadHeadLines(transcriptPath, 6);
                         var tailLines = ReadTailLines(transcriptPath, 50).ToList();
 
@@ -789,8 +808,14 @@ public sealed class TranscriptDiscovery
                         PendingQuestionRequest? pendingQuestion = null;
                         PendingApprovalRequest? pendingApproval = null;
                         PendingApprovalRequest? pendingPlanFeedback = null;
+                        int pendingQuestionStepIndex = -1;
+                        int pendingApprovalStepIndex = -1;
+                        string? pendingApprovalCommandLine = null;
+                        int? pendingApprovalWaitMs = null;
+                        bool hasExplicitWaitingStatus = false;
                         int pendingToolCallCount = 0;
                         int completedGenericSincePlanner = 0;
+                        HashSet<int>? seenGenericSteps = null;
 
                         void ProcessLine(string line, bool isHead)
                         {
@@ -826,20 +851,31 @@ public sealed class TranscriptDiscovery
 
                                 if (string.Equals(type, "USER_INPUT", StringComparison.OrdinalIgnoreCase))
                                 {
+                                    var rawUserContent = root.TryGetProperty("content", out var cEl) && cEl.ValueKind == JsonValueKind.String
+                                        ? cEl.GetString()
+                                        : null;
+                                    _antigravityPolicy.ApplyTranscriptSettingsChange(policy, rawUserContent);
+
                                     if (!isHead)
                                     {
                                         pendingQuestion = null;
                                         pendingApproval = null;
                                         pendingPlanFeedback = null;
+                                        pendingQuestionStepIndex = -1;
+                                        pendingApprovalStepIndex = -1;
+                                        pendingApprovalCommandLine = null;
+                                        pendingApprovalWaitMs = null;
+                                        hasExplicitWaitingStatus = false;
                                         pendingToolCallCount = 0;
                                         completedGenericSincePlanner = 0;
+                                        seenGenericSteps?.Clear();
                                     }
                                     if (string.Equals(source, "USER_EXPLICIT", StringComparison.OrdinalIgnoreCase))
                                     {
                                         hasExplicitUserInput = true;
-                                        if (root.TryGetProperty("content", out var cEl) && cEl.ValueKind == JsonValueKind.String)
+                                        if (!string.IsNullOrWhiteSpace(rawUserContent))
                                         {
-                                            var extracted = ExtractAntigravityUserPrompt(cEl.GetString());
+                                            var extracted = ExtractAntigravityUserPrompt(rawUserContent);
                                             if (!string.IsNullOrWhiteSpace(extracted))
                                             {
                                                 firstUserPrompt ??= extracted;
@@ -852,8 +888,14 @@ public sealed class TranscriptDiscovery
                                 {
                                     pendingQuestion = null;
                                     pendingApproval = null;
+                                    pendingQuestionStepIndex = -1;
+                                    pendingApprovalStepIndex = -1;
+                                    pendingApprovalCommandLine = null;
+                                    pendingApprovalWaitMs = null;
+                                    hasExplicitWaitingStatus = false;
                                     pendingToolCallCount = 0;
                                     completedGenericSincePlanner = 0;
+                                    seenGenericSteps?.Clear();
 
                                     if (root.TryGetProperty("model", out var mEl) && mEl.ValueKind == JsonValueKind.String &&
                                         !string.IsNullOrWhiteSpace(mEl.GetString()))
@@ -871,7 +913,11 @@ public sealed class TranscriptDiscovery
                                     string? toolName = null;
                                     int toolCallCount = 0;
                                     List<PendingQuestionItem>? askQuestions = null;
+                                    int newQuestionStepIndex = -1;
                                     PendingApprovalRequest? newStepApproval = null;
+                                    int newStepApprovalStepIndex = -1;
+                                    string? newStepApprovalCommandLine = null;
+                                    int? newStepApprovalWaitMs = null;
                                     PendingApprovalRequest? newPlanFeedback = null;
 
                                     var stepKey = stepIndex >= 0
@@ -882,6 +928,7 @@ public sealed class TranscriptDiscovery
                                     {
                                         foreach (var tc in tcEl.EnumerateArray())
                                         {
+                                            int toolCallOffset = toolCallCount;
                                             hasTools = true;
                                             toolCallCount++;
                                             if (tc.ValueKind != JsonValueKind.Object ||
@@ -893,14 +940,16 @@ public sealed class TranscriptDiscovery
                                             var currentTool = nEl.GetString() ?? "";
                                             toolName = currentTool;
                                             var hasArgs = tc.TryGetProperty("args", out var argsEl) && argsEl.ValueKind == JsonValueKind.Object;
+                                            int predictedStepIndex = stepIndex >= 0 ? stepIndex + 1 + toolCallOffset : -1;
 
                                             // 1. Structured question / option tool (ask_question, AskUserQuestion, or any tool with questions/options/choices)
                                             if (HookPayloadDecoder.IsQuestionToolName(currentTool))
                                             {
                                                 askQuestions ??= new List<PendingQuestionItem>();
                                                 if (hasArgs) HookPayloadDecoder.ExtractQuestions(argsEl, askQuestions);
+                                                newQuestionStepIndex = predictedStepIndex;
                                             }
-                                            else if (hasArgs)
+                                            else if (hasArgs && !KnownNonQuestionAntigravityTools.Contains(currentTool))
                                             {
                                                 // Any other tool that explicitly carries questions or selectable options/choices
                                                 var genericQs = new List<PendingQuestionItem>();
@@ -909,6 +958,7 @@ public sealed class TranscriptDiscovery
                                                 {
                                                     askQuestions ??= new List<PendingQuestionItem>();
                                                     askQuestions.AddRange(genericQs);
+                                                    newQuestionStepIndex = predictedStepIndex;
                                                 }
                                             }
 
@@ -924,6 +974,9 @@ public sealed class TranscriptDiscovery
                                                     var cmdLine = TryParseAntigravityArgString(argsEl, "CommandLine", "command", "Command");
                                                     var summary = TryParseAntigravityArgString(argsEl, "toolSummary", "Description", "description")
                                                                   ?? Localization.Strings.Get("CommandApprovalSummary");
+                                                    newStepApprovalStepIndex = predictedStepIndex;
+                                                    newStepApprovalCommandLine = cmdLine;
+                                                    newStepApprovalWaitMs = TryParseAntigravityArgInt(argsEl, "WaitMsBeforeAsync");
                                                     newStepApproval = new PendingApprovalRequest
                                                     {
                                                         RequestId = $"aga-{sessionId}-{stepKey}",
@@ -1023,12 +1076,16 @@ public sealed class TranscriptDiscovery
                                             IsBlocking = false,
                                             CreatedAt = lineTs ?? DateTimeOffset.UtcNow
                                         };
+                                        pendingQuestionStepIndex = newQuestionStepIndex;
                                         pendingToolCallCount = Math.Max(1, toolCallCount);
                                         toolName = "ask_question";
                                     }
                                     else if (newStepApproval != null)
                                     {
                                         pendingApproval = newStepApproval;
+                                        pendingApprovalStepIndex = newStepApprovalStepIndex;
+                                        pendingApprovalCommandLine = newStepApprovalCommandLine;
+                                        pendingApprovalWaitMs = newStepApprovalWaitMs;
                                         pendingToolCallCount = Math.Max(1, toolCallCount);
                                     }
 
@@ -1056,65 +1113,97 @@ public sealed class TranscriptDiscovery
                                         string.Equals(status, "CANCELLED", StringComparison.OrdinalIgnoreCase) ||
                                         string.Equals(status, "CANCELED", StringComparison.OrdinalIgnoreCase);
 
-                                    // For run_command BypassSandbox approvals, once Antigravity writes a RUNNING background task
-                                    // or DONE command output, the user already clicked Allow/Deny.
+                                    // For run_command approvals, once Antigravity writes a RUNNING step or DONE/ERROR/CANCELLED
+                                    // command output, the command has already been cleared to execute or was rejected.
                                     bool commandAlreadyStarted =
                                         stepFinished ||
-                                        (string.Equals(status, "RUNNING", StringComparison.OrdinalIgnoreCase) &&
-                                         genericContent.Contains("Tool is running", StringComparison.OrdinalIgnoreCase));
+                                        string.Equals(status, "RUNNING", StringComparison.OrdinalIgnoreCase);
+
+                                    bool countedStep = false;
+                                    void CountGenericStepOnce()
+                                    {
+                                        if (countedStep) return;
+                                        countedStep = true;
+                                        if (stepIndex < 0)
+                                        {
+                                            completedGenericSincePlanner++;
+                                            return;
+                                        }
+                                        seenGenericSteps ??= new HashSet<int>();
+                                        if (seenGenericSteps.Add(stepIndex))
+                                        {
+                                            completedGenericSincePlanner++;
+                                        }
+                                    }
 
                                     if (pendingQuestion != null && stepFinished)
                                     {
-                                        completedGenericSincePlanner++;
+                                        CountGenericStepOnce();
+                                        bool exactStepMatch = pendingQuestionStepIndex >= 0 && stepIndex == pendingQuestionStepIndex;
                                         bool looksLikeQuestionAnswer =
                                             genericContent.Contains("\nA1:", StringComparison.Ordinal) ||
                                             genericContent.StartsWith("A1:", StringComparison.Ordinal) ||
                                             genericContent.Contains("User cancelled", StringComparison.OrdinalIgnoreCase);
 
-                                        if (pendingToolCallCount <= 1 ||
+                                        if (exactStepMatch ||
+                                            (pendingQuestionStepIndex < 0 && pendingToolCallCount <= 1) ||
                                             completedGenericSincePlanner >= pendingToolCallCount ||
                                             looksLikeQuestionAnswer)
                                         {
                                             pendingQuestion = null;
+                                            pendingQuestionStepIndex = -1;
                                             pendingToolCallCount = 0;
                                             completedGenericSincePlanner = 0;
+                                            seenGenericSteps?.Clear();
                                         }
                                     }
 
                                     if (pendingApproval != null && commandAlreadyStarted)
                                     {
-                                        completedGenericSincePlanner++;
-                                        if (pendingToolCallCount <= 1 || completedGenericSincePlanner >= pendingToolCallCount)
+                                        CountGenericStepOnce();
+                                        bool exactStepMatch = pendingApprovalStepIndex >= 0 && stepIndex == pendingApprovalStepIndex;
+                                        if (exactStepMatch ||
+                                            (pendingApprovalStepIndex < 0 && pendingToolCallCount <= 1) ||
+                                            completedGenericSincePlanner >= pendingToolCallCount)
                                         {
                                             pendingApproval = null;
+                                            pendingApprovalStepIndex = -1;
+                                            pendingApprovalCommandLine = null;
+                                            pendingApprovalWaitMs = null;
+                                            hasExplicitWaitingStatus = false;
                                             pendingToolCallCount = 0;
                                             completedGenericSincePlanner = 0;
+                                            seenGenericSteps?.Clear();
                                         }
                                     }
 
-                                    if (pendingQuestion == null && pendingApproval == null && IsWaitingStatus(status))
+                                    if (IsWaitingStatus(status))
                                     {
-                                        var stepKey = stepIndex >= 0
-                                            ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                                            : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
-                                        pendingApproval = new PendingApprovalRequest
+                                        hasExplicitWaitingStatus = true;
+                                        if (pendingQuestion == null && pendingApproval == null)
                                         {
-                                            RequestId = $"agw-{sessionId}-{stepKey}",
-                                            SessionId = sessionId,
-                                            Source = AgentSource.Antigravity,
-                                            HookEventName = "PermissionRequest",
-                                            ToolName = activeToolName ?? surfaceName,
-                                            Summary = !string.IsNullOrWhiteSpace(genericContent)
-                                                ? HookPayloadDecoder.Clip(genericContent, 160)
-                                                : Localization.Strings.Get("ApproveHint"),
-                                            Options =
-                                            [
-                                                new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") },
-                                                new QuestionOption { Label = Localization.Strings.Get("OptionDeny") }
-                                            ],
-                                            IsBlocking = false,
-                                            CreatedAt = lineTs ?? DateTimeOffset.UtcNow
-                                        };
+                                            var stepKey = stepIndex >= 0
+                                                ? stepIndex.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                                                : (lineTs ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+                                            pendingApproval = new PendingApprovalRequest
+                                            {
+                                                RequestId = $"agw-{sessionId}-{stepKey}",
+                                                SessionId = sessionId,
+                                                Source = AgentSource.Antigravity,
+                                                HookEventName = "PermissionRequest",
+                                                ToolName = activeToolName ?? surfaceName,
+                                                Summary = !string.IsNullOrWhiteSpace(genericContent)
+                                                    ? HookPayloadDecoder.Clip(genericContent, 160)
+                                                    : Localization.Strings.Get("ApproveHint"),
+                                                Options =
+                                                [
+                                                    new QuestionOption { Label = Localization.Strings.Get("OptionAllowOnce") },
+                                                    new QuestionOption { Label = Localization.Strings.Get("OptionDeny") }
+                                                ],
+                                                IsBlocking = false,
+                                                CreatedAt = lineTs ?? DateTimeOffset.UtcNow
+                                            };
+                                        }
                                     }
                                 }
                                 else if (!isHead && string.Equals(type, "ERROR_MESSAGE", StringComparison.OrdinalIgnoreCase))
@@ -1122,8 +1211,14 @@ public sealed class TranscriptDiscovery
                                     pendingQuestion = null;
                                     pendingApproval = null;
                                     pendingPlanFeedback = null;
+                                    pendingQuestionStepIndex = -1;
+                                    pendingApprovalStepIndex = -1;
+                                    pendingApprovalCommandLine = null;
+                                    pendingApprovalWaitMs = null;
+                                    hasExplicitWaitingStatus = false;
                                     pendingToolCallCount = 0;
                                     completedGenericSincePlanner = 0;
+                                    seenGenericSteps?.Clear();
                                 }
 
                                 if (!isHead)
@@ -1159,19 +1254,34 @@ public sealed class TranscriptDiscovery
                         }
                         if (updatedAt.UtcDateTime < cutoffUtc) continue;
 
+                        var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
+                        if (pendingApproval != null &&
+                            pendingApproval.RequestId.StartsWith("aga-", StringComparison.OrdinalIgnoreCase) &&
+                            !_antigravityPolicy.ShouldSurfaceCommandApproval(
+                                policy,
+                                pendingApprovalCommandLine,
+                                pendingApprovalWaitMs,
+                                hasExplicitWaitingStatus,
+                                idleSeconds))
+                        {
+                            pendingApproval = null;
+                        }
+
+                        if (pendingPlanFeedback != null &&
+                            !_antigravityPolicy.ShouldSurfacePlanFeedback(
+                                policy,
+                                pendingPlanFeedback.RequestId,
+                                lastType,
+                                lastStatus,
+                                lastHasToolCalls,
+                                hasExplicitWaitingStatus,
+                                idleSeconds))
+                        {
+                            pendingPlanFeedback = null;
+                        }
+
                         // If no live tool approval is active, surface a pending plan/artifact feedback card (Proceed).
                         var effectiveApproval = pendingApproval ?? pendingPlanFeedback;
-
-                        var idleSeconds = (DateTimeOffset.UtcNow - updatedAt).TotalSeconds;
-                        // Antigravity writes PLANNER_RESPONSE before evaluating auto-approve rules or rendering
-                        // its own permission UI. Require a brief settle window for BypassSandbox commands so
-                        // Open Island never jumps ahead of Antigravity or false-alarms on auto-approved commands.
-                        if (effectiveApproval != null &&
-                            effectiveApproval.RequestId.StartsWith("aga-", StringComparison.OrdinalIgnoreCase) &&
-                            idleSeconds < 4.0)
-                        {
-                            effectiveApproval = null;
-                        }
                         if (idleSeconds >= 1800)
                         {
                             // Avoid surfacing abandoned questions/approvals older than 30 minutes.
@@ -1369,6 +1479,22 @@ public sealed class TranscriptDiscovery
         {
             var raw = UnquoteJsonArgString(el.GetString());
             if (bool.TryParse(raw, out var b)) return b;
+        }
+        return null;
+    }
+
+    private static int? TryParseAntigravityArgInt(JsonElement argsObj, string propertyName)
+    {
+        if (!argsObj.TryGetProperty(propertyName, out var el)) return null;
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var n)) return n;
+        if (el.ValueKind == JsonValueKind.String)
+        {
+            var raw = UnquoteJsonArgString(el.GetString());
+            if (int.TryParse(raw, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            {
+                return parsed;
+            }
         }
         return null;
     }

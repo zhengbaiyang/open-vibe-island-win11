@@ -4,6 +4,19 @@
 
 All notable changes to Open Island for Windows 11 are documented here. Each version section is published automatically as the GitHub Release notes and shown in the in-app update window.
 
+## [0.1.11] - 2026-11-24
+
+### 🐛 修复与体验优化 / Fixes & UX Polish
+
+- **决策消失后自动取消固定并收起灵动岛**：
+  - 将固定状态拆分为「手动固定」与「待处理决策自动固定」（`IslandPinState`）：当有审批或提问弹出时灵动岛自动展开并进入自动固定；若用户未从灵动岛跳转、直接在原客户端处理完成，或点击卡片内按钮处理完毕导致待处理决策清零，会自动取消固定并在鼠标未悬停时自动收起（同时保留用户主动点击徽章/顶栏/箭头设置的手动固定状态）；
+  - 补全 `SessionStateReducer` 中 `PostToolUseFailure` 与 `PermissionDenied` 对待审批/待提问状态及会话阶段的清理，避免已结束或被拒绝的工具继续阻塞收起。
+  - **Auto-unpin & auto-collapse when decisions clear**: separated manual pins from attention-triggered auto-pins (`IslandPinState`) so the island automatically unpins and collapses (when not hovered) as soon as pending approvals/questions clear externally or in-island while preserving explicit manual pins; also fixed `PostToolUseFailure` and `PermissionDenied` cleanup in `SessionStateReducer`.
+- **消除 Google Antigravity 在 Auto / Turbo 模式下的安全决策误报**：
+  - 新增策略探测与规则引擎（`AntigravityPolicyDetector`），综合读取 `~/.gemini/config/config.json`、Antigravity Desktop/IDE/CLI 设置、`~/.gemini/config/projects/*.json` 项目级配置，以及对话内 `<USER_SETTINGS_CHANGE>` 实时策略切换，解析执行模式（`RequestReview` / `Default` / `Auto` / `Turbo`）、审阅策略与 `Allow` / `Ask` / `Deny` 命令规则（按 `Deny > Ask > Allow` 评估，且白名单不对链式/子 shell 命令误放行）；
+  - `Turbo` 模式下自动跳过非 `Ask` 命令提示；`Auto` / 未知模式下按 `WaitMsBeforeAsync` 延长安全命令确认缓冲窗口；结合精确的 `step_index` 与 `GENERIC RUNNING` 状态实时消隐，并将 `write_file`/`edit_file`（`RequestFeedback: true`）与 `notify_user` 收敛至回合真正等待审阅时才展示。
+  - **Eliminated false-positive Antigravity approvals in Auto / Turbo mode**: added `AntigravityPolicyDetector` to evaluate global, surface-specific, project-level, and in-transcript permission/review policies (`Allow`/`Ask`/`Deny`), suppress auto-approved `Turbo` commands, use a `WaitMsBeforeAsync`-aware settle window in `Auto` mode, clear approvals on exact `step_index` / `GENERIC RUNNING` transitions, and gate plan feedback cards until end-of-turn review.
+
 ## [0.1.10] - 2026-11-23
 
 ### ✨ 界面主题与视觉识别优化 / Settings Themes & Bespoke Agent Icons
@@ -116,6 +129,7 @@ All notable changes to Open Island for Windows 11 are documented here. Each vers
 - Windows 11 原生移植首个公开版本：灵动岛实时多 Agent 会话、审批 / 提问 / 完成交互、一键跳回终端、空闲自动隐藏、本地额度监控、中英双语与双主题。
   First public Windows 11 port: live multi-agent island, approvals / questions / completions, jump back to terminal, idle auto-hide, local quota monitoring, bilingual UI and two themes.
 
+[0.1.11]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.10...v0.1.11
 [0.1.10]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.9...v0.1.10
 [0.1.9]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/zhengbaiyang/open-vibe-island-win11/compare/v0.1.7...v0.1.8

@@ -296,6 +296,14 @@ public sealed class SessionStateReducer
                 case "PostToolUseFailure":
                     session.ActiveToolName = null;
                     session.ActiveToolPreview = null;
+                    if (session.Phase is SessionPhase.WaitingForApproval or SessionPhase.WaitingForAnswer)
+                    {
+                        RememberClearedApproval(session.PendingApproval);
+                        session.PendingApproval = null;
+                        RememberClearedQuestion(session.PendingQuestion);
+                        session.PendingQuestion = null;
+                        session.Phase = SessionPhase.Running;
+                    }
                     session.StatusSummary = evt.Error ?? "Tool execution failed";
                     if (evt.Source == AgentSource.Grok)
                     {
@@ -343,6 +351,12 @@ public sealed class SessionStateReducer
                 case "PermissionDenied":
                     RememberClearedApproval(session.PendingApproval);
                     session.PendingApproval = null;
+                    if (session.Phase == SessionPhase.WaitingForApproval)
+                    {
+                        session.Phase = session.PendingQuestion != null
+                            ? SessionPhase.WaitingForAnswer
+                            : SessionPhase.Idle;
+                    }
                     session.StatusSummary = "Permission denied";
                     break;
 
